@@ -1,0 +1,96 @@
+[
+  {
+    "timestamp": "2025-06-23T14:51:08.463357+00:00",
+    "session_id": "pilot-20250623-145058-4b4b62",
+    "callsign": "UNKNOWN",
+    "stt_text": "Falcon on 2 3. Forward level request, please.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "Falcon on 2 3. Forward level request, please.",
+      "corrected_text": "falcon 23. forward level request, please.",
+      "callsign": "Falcon 23",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "RUNWAY_ALPHA_STATUS",
+        0.7
+      ]
+    },
+    "response_text": "Falcon two three, Unable to process request. Say again.",
+    "processing_time": 9.579194,
+    "confidence_score": 0.7080657556653023
+  },
+  {
+    "timestamp": "2025-06-23T14:51:16.889176+00:00",
+    "session_id": "pilot-20250623-145109-03ac00",
+    "callsign": "UNKNOWN",
+    "stt_text": "Thank you.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "Thank you.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.1
+      ]
+    },
+    "response_text": "Unable to process request. Say again.",
+    "processing_time": 7.75349,
+    "confidence_score": 0.5070433815320333
+  },
+  {
+    "timestamp": "2025-06-23T14:55:57.723159+00:00",
+    "session_id": "pilot-20250623-145544-23570f",
+    "callsign": "UNKNOWN",
+    "stt_text": "PYC 1, 2, 3, bird Level request.",
+    "request_code": "BIRD_RISK_INQUIRY",
+    "parameters": {
+      "original_text": "PYC 1, 2, 3, bird Level request.",
+      "corrected_text": null,
+      "callsign": "Pyc 1",
+      "confidence_score": 0.7,
+      "reasoning": "Text-based extraction: BIRD_RISK_INQUIRY",
+      "llm_enhanced": true,
+      "classification_method": "llm_primary",
+      "keyword_fallback": [
+        "BIRD_RISK_INQUIRY",
+        4
+      ]
+    },
+    "response_text": "Pyc 1, Unable to process request. Say again.",
+    "processing_time": 13.600776,
+    "confidence_score": 0.7095900094684432
+  },
+  {
+    "timestamp": "2025-06-23T14:56:11.538750+00:00",
+    "session_id": "pilot-20250623-145603-e68ed3",
+    "callsign": "UNKNOWN",
+    "stt_text": "FALCON 123, bird level request.",
+    "request_code": "BIRD_RISK_INQUIRY",
+    "parameters": {
+      "original_text": "FALCON 123, bird level request.",
+      "corrected_text": null,
+      "callsign": "Falcon 123",
+      "confidence_score": 0.7,
+      "reasoning": "Text-based extraction: BIRD_RISK_INQUIRY",
+      "llm_enhanced": true,
+      "classification_method": "llm_primary",
+      "keyword_fallback": [
+        "BIRD_RISK_INQUIRY",
+        4
+      ]
+    },
+    "response_text": "Falcon one two three, Unable to process request. Say again.",
+    "processing_time": 7.614936,
+    "confidence_score": 0.7174845486879349
+  }
+]
