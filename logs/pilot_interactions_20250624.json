@@ -530,5 +530,506 @@
     "response_text": "Going 2, Runway Bravo available.",
     "processing_time": 8.629445,
     "confidence_score": 0.496180964840783
+  },
+  {
+    "timestamp": "2025-06-24T02:42:11.404974+00:00",
+    "session_id": "pilot-20250624-024202-e1390d",
+    "callsign": "UNKNOWN",
+    "stt_text": "Airbus, contact communication only.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "Airbus, contact communication only.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "Available runways Alpha, Bravo.",
+    "processing_time": 8.724955,
+    "confidence_score": 0.6494133986532689
+  },
+  {
+    "timestamp": "2025-06-24T02:42:24.408347+00:00",
+    "session_id": "pilot-20250624-024216-0849f5",
+    "callsign": "UNKNOWN",
+    "stt_text": "I couldn't see what it is doing today. I just...",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "I couldn't see what it is doing today. I just...",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "Available runways Alpha, Bravo.",
+    "processing_time": 8.112187,
+    "confidence_score": 0.720480490475893
+  },
+  {
+    "timestamp": "2025-06-24T02:48:20.242673+00:00",
+    "session_id": "pilot-20250624-024811-885273",
+    "callsign": "UNKNOWN",
+    "stt_text": "The airport is being worked on.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "The airport is being worked on.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "Runway Alpha available.",
+    "processing_time": 8.443385,
+    "confidence_score": 0.6040251016616821
+  },
+  {
+    "timestamp": "2025-06-24T02:48:29.683714+00:00",
+    "session_id": "pilot-20250624-024821-01f966",
+    "callsign": "UNKNOWN",
+    "stt_text": "I'm going 2 see whether I must get the tickets.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "I'm going 2 see whether I must get the tickets.",
+      "corrected_text": null,
+      "callsign": "Going 2",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "Going 2, No runways available. Hold for approach.",
+    "processing_time": 8.036234,
+    "confidence_score": 0.7592829217513403
+  },
+  {
+    "timestamp": "2025-06-24T02:48:45.006634+00:00",
+    "session_id": "pilot-20250624-024835-66e552",
+    "callsign": "UNKNOWN",
+    "stt_text": "I'm going 2 be a little bit more serious. I'm going 2 be a little bit more serious.",
+    "request_code": "RUNWAY_ALPHA_STATUS",
+    "parameters": {
+      "original_text": "I'm going 2 be a little bit more serious. I'm going 2 be a little bit more serious.",
+      "corrected_text": null,
+      "confidence_score": 3,
+      "matched_keywords": [],
+      "callsign": "Going 2",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "Going 2, WARNING. Runway Alpha advisory. Proceed with vigilance.",
+    "processing_time": 9.294345,
+    "confidence_score": 0.6634026456762243
+  },
+  {
+    "timestamp": "2025-06-24T02:49:25.335289+00:00",
+    "session_id": "pilot-20250624-024919-3f10bb",
+    "callsign": "UNKNOWN",
+    "stt_text": "FALCON 123, running alphastata 3K.",
+    "request_code": "RUNWAY_ALPHA_STATUS",
+    "parameters": {
+      "original_text": "FALCON 123, running alphastata 3K.",
+      "corrected_text": "falcon 123, runway alphastata 3k.",
+      "confidence_score": 13,
+      "matched_keywords": [
+        "runway alpha",
+        "runway a"
+      ],
+      "callsign": "Falcon 123",
+      "classification_method": "keyword_high_confidence"
+    },
+    "response_text": "Falcon one two three, WARNING. Runway Alpha advisory. Proceed with vigilance.",
+    "processing_time": 5.818735,
+    "confidence_score": 0.6679373479315213
+  },
+  {
+    "timestamp": "2025-06-24T02:49:54.210727+00:00",
+    "session_id": "pilot-20250624-024945-25034b",
+    "callsign": "UNKNOWN",
+    "stt_text": "Okay.",
+    "request_code": "UNKNOWN_REQUEST",
+    "parameters": {
+      "original_text": "Okay.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "best_score": 0,
+      "classification_method": "keyword_fallback"
+    },
+    "response_text": "Unable to process request. Say again.",
+    "processing_time": 8.573646,
+    "confidence_score": 0.45476076304912566
+  },
+  {
+    "timestamp": "2025-06-24T02:50:20.989263+00:00",
+    "session_id": "pilot-20250624-025012-73bfd4",
+    "callsign": "UNKNOWN",
+    "stt_text": "Run a Bravo status request.",
+    "request_code": "RUNWAY_BRAVO_STATUS",
+    "parameters": {
+      "original_text": "Run a Bravo status request.",
+      "corrected_text": null,
+      "callsign": "UNKNOWN",
+      "confidence_score": 0.7,
+      "reasoning": "Text-based extraction: RUNWAY_BRAVO_STATUS",
+      "llm_enhanced": true,
+      "classification_method": "llm_primary",
+      "keyword_fallback": [
+        "RUNWAY_BRAVO_STATUS",
+        9
+      ]
+    },
+    "response_text": "Runway Bravo is clear. Cleared for operations.",
+    "processing_time": 8.38201,
+    "confidence_score": 0.5940234495533837
+  },
+  {
+    "timestamp": "2025-06-24T02:50:35.308622+00:00",
+    "session_id": "pilot-20250624-025026-85e0d4",
+    "callsign": "UNKNOWN",
+    "stt_text": "I'm going 2 be talking about the on the 3 boards activation risk",
+    "request_code": "BIRD_RISK_INQUIRY",
+    "parameters": {
+      "original_text": "I'm going 2 be talking about the on the 3 boards activation risk",
+      "corrected_text": "i'm going 2 be talking about the on the 3 birds activation risk",
+      "confidence_score": 7,
+      "matched_keywords": [
+        "bird",
+        "birds"
+      ],
+      "callsign": "Going 2",
+      "classification_method": "keyword_over_llm",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "Going 2, Runway CLEAR of bird activity currently.",
+    "processing_time": 8.96431,
+    "confidence_score": 0.3469737031393581
+  },
+  {
+    "timestamp": "2025-06-24T02:50:51.080846+00:00",
+    "session_id": "pilot-20250624-025043-c7cd01",
+    "callsign": "UNKNOWN",
+    "stt_text": "Running our first data showcase.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "Running our first data showcase.",
+      "corrected_text": "runway our first data showcase.",
+      "confidence_score": 2,
+      "matched_keywords": [],
+      "callsign": "Aircraft",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.15
+      ]
+    },
+    "response_text": "No runways available. Hold for approach.",
+    "processing_time": 7.807784,
+    "confidence_score": 0.6562213769389523
+  },
+  {
+    "timestamp": "2025-06-24T02:51:05.566528+00:00",
+    "session_id": "pilot-20250624-025057-22d2a0",
+    "callsign": "UNKNOWN",
+    "stt_text": "Run A, Alphast, Data3Cast.",
+    "request_code": "RUNWAY_ALPHA_STATUS",
+    "parameters": {
+      "original_text": "Run A, Alphast, Data3Cast.",
+      "corrected_text": null,
+      "confidence_score": 3,
+      "matched_keywords": [],
+      "callsign": "Aircraft",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "WARNING. Runway Alpha advisory. Proceed with vigilance.",
+    "processing_time": 7.972202,
+    "confidence_score": 0.6691848643124104
+  },
+  {
+    "timestamp": "2025-06-24T02:51:18.357154+00:00",
+    "session_id": "pilot-20250624-025113-cef4bb",
+    "callsign": "UNKNOWN",
+    "stt_text": "Running Bravo status request.",
+    "request_code": "RUNWAY_BRAVO_STATUS",
+    "parameters": {
+      "original_text": "Running Bravo status request.",
+      "corrected_text": "runway bravo status request.",
+      "confidence_score": 23,
+      "matched_keywords": [
+        "runway bravo",
+        "runway b",
+        "runway bravo status",
+        "bravo status"
+      ],
+      "callsign": "Aircraft",
+      "runway": "RWY BRAVO",
+      "classification_method": "keyword_high_confidence"
+    },
+    "response_text": "WARNING. Runway Bravo advisory. Proceed with vigilance.",
+    "processing_time": 5.321826,
+    "confidence_score": 0.7143506705760956
+  },
+  {
+    "timestamp": "2025-06-24T02:51:33.545057+00:00",
+    "session_id": "pilot-20250624-025125-3917ad",
+    "callsign": "UNKNOWN",
+    "stt_text": "All the activity level request.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "All the activity level request.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "No runways available. Hold for approach.",
+    "processing_time": 8.029298,
+    "confidence_score": 0.7046424009733729
+  },
+  {
+    "timestamp": "2025-06-24T03:03:53.121251+00:00",
+    "session_id": "pilot-20250624-030343-e8f1b5",
+    "callsign": "UNKNOWN",
+    "stt_text": "Runeal, PUS, Theta, Strikas.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "Runeal, PUS, Theta, Strikas.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "No runways available. Hold for approach.",
+    "processing_time": 9.365619,
+    "confidence_score": 0.6347553326803095
+  },
+  {
+    "timestamp": "2025-06-24T03:11:12.141286+00:00",
+    "session_id": "pilot-20250624-031102-e4638f",
+    "callsign": "UNKNOWN",
+    "stt_text": "Run a Bravo status check.",
+    "request_code": "RUNWAY_BRAVO_STATUS",
+    "parameters": {
+      "original_text": "Run a Bravo status check.",
+      "corrected_text": null,
+      "callsign": "UNKNOWN",
+      "confidence_score": 0.7,
+      "reasoning": "Text-based extraction: RUNWAY_BRAVO_STATUS",
+      "llm_enhanced": true,
+      "classification_method": "llm_primary",
+      "keyword_fallback": [
+        "RUNWAY_BRAVO_STATUS",
+        9
+      ]
+    },
+    "response_text": "Runway Bravo is clear. Cleared for operations.",
+    "processing_time": 9.442321,
+    "confidence_score": 0.6876832064655092
+  },
+  {
+    "timestamp": "2025-06-24T03:11:26.332094+00:00",
+    "session_id": "pilot-20250624-031117-aacd3d",
+    "callsign": "UNKNOWN",
+    "stt_text": "8 con on 2 3. bird Activision Leveling Quest.",
+    "request_code": "BIRD_RISK_INQUIRY",
+    "parameters": {
+      "original_text": "8 con on 2 3. bird Activision Leveling Quest.",
+      "corrected_text": null,
+      "callsign": "On 2",
+      "confidence_score": 0.7,
+      "reasoning": "Text-based extraction: BIRD_RISK_INQUIRY",
+      "llm_enhanced": true,
+      "classification_method": "llm_primary",
+      "keyword_fallback": [
+        "BIRD_RISK_INQUIRY",
+        4
+      ]
+    },
+    "response_text": "Runway CLEAR of bird activity currently.",
+    "processing_time": 9.075107,
+    "confidence_score": 0.6201119944453239
+  },
+  {
+    "timestamp": "2025-06-24T03:11:39.582936+00:00",
+    "session_id": "pilot-20250624-031130-c577d0",
+    "callsign": "UNKNOWN",
+    "stt_text": "Korean Air 1,2,3, board activation level request.",
+    "request_code": "BIRD_RISK_INQUIRY",
+    "parameters": {
+      "original_text": "Korean Air 1,2,3, board activation level request.",
+      "corrected_text": null,
+      "callsign": "Korean Air 1",
+      "confidence_score": 0.7,
+      "reasoning": "Text-based extraction: BIRD_RISK_INQUIRY",
+      "llm_enhanced": true,
+      "classification_method": "llm_primary",
+      "keyword_fallback": [
+        "BIRD_RISK_INQUIRY",
+        4
+      ]
+    },
+    "response_text": "Korean Air 1, Runway CLEAR of bird activity currently.",
+    "processing_time": 9.493893,
+    "confidence_score": 0.7814189568161964
+  },
+  {
+    "timestamp": "2025-06-24T03:11:53.560437+00:00",
+    "session_id": "pilot-20250624-031145-fde899",
+    "callsign": "UNKNOWN",
+    "stt_text": "Rony, Alpha, Street, Host, check.",
+    "request_code": "RUNWAY_ALPHA_STATUS",
+    "parameters": {
+      "original_text": "Rony, Alpha, Street, Host, check.",
+      "corrected_text": null,
+      "confidence_score": 5,
+      "matched_keywords": [],
+      "callsign": "Aircraft",
+      "classification_method": "keyword_over_llm",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "WARNING. Runway Alpha advisory. Proceed with vigilance.",
+    "processing_time": 7.991977,
+    "confidence_score": 0.6068653474961008
+  },
+  {
+    "timestamp": "2025-06-24T03:12:07.815812+00:00",
+    "session_id": "pilot-20250624-031159-64c0d8",
+    "callsign": "UNKNOWN",
+    "stt_text": "Learning proper status social check.",
+    "request_code": "AVAILABLE_RUNWAY_INQUIRY",
+    "parameters": {
+      "original_text": "Learning proper status social check.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "confidence_score": 0.3,
+      "default_classification": true,
+      "reasoning": "요청 내용이 있지만 명확하지 않아서 기본 활주로 상태 문의로 분류",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "Runway Alpha available.",
+    "processing_time": 8.351536,
+    "confidence_score": 0.6144892540242937
+  },
+  {
+    "timestamp": "2025-06-24T03:12:18.438811+00:00",
+    "session_id": "pilot-20250624-031209-2d3b62",
+    "callsign": "UNKNOWN",
+    "stt_text": "Rune Bravo, stay safe.",
+    "request_code": "RUNWAY_BRAVO_STATUS",
+    "parameters": {
+      "original_text": "Rune Bravo, stay safe.",
+      "corrected_text": null,
+      "confidence_score": 3,
+      "matched_keywords": [],
+      "callsign": "Aircraft",
+      "classification_method": "keyword_safety_first",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "WARNING. Runway Bravo advisory. Proceed with vigilance.",
+    "processing_time": 8.950722,
+    "confidence_score": 0.6171402260661125
+  },
+  {
+    "timestamp": "2025-06-24T03:12:32.194848+00:00",
+    "session_id": "pilot-20250624-031224-a187cd",
+    "callsign": "UNKNOWN",
+    "stt_text": "Please.",
+    "request_code": "UNKNOWN_REQUEST",
+    "parameters": {
+      "original_text": "Please.",
+      "corrected_text": null,
+      "callsign": "Aircraft",
+      "runway": null,
+      "best_score": 0,
+      "classification_method": "keyword_fallback"
+    },
+    "response_text": "Unable to process request. Say again.",
+    "processing_time": 8.106942,
+    "confidence_score": 0.6835029929876327
+  },
+  {
+    "timestamp": "2025-06-24T03:12:42.682637+00:00",
+    "session_id": "pilot-20250624-031234-5c43da",
+    "callsign": "UNKNOWN",
+    "stt_text": "World activity level please.",
+    "request_code": "BIRD_RISK_INQUIRY",
+    "parameters": {
+      "original_text": "World activity level please.",
+      "corrected_text": "bird activity level please.",
+      "confidence_score": 8,
+      "matched_keywords": [
+        "bird",
+        "bird activity"
+      ],
+      "callsign": "Aircraft",
+      "classification_method": "keyword_over_llm",
+      "llm_alternative": [
+        "UNKNOWN_REQUEST",
+        0.25
+      ]
+    },
+    "response_text": "CAUTION. Bird activity reported near runway threshold.",
+    "processing_time": 8.194761,
+    "confidence_score": 0.74935307726264
   }
 ]

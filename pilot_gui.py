@@ -127,6 +127,12 @@ class VoiceWorkerThread(QThread):
 class PilotAvionics(QMainWindow):
     """FALCON Pilot Avionics Interface - 메인 항공전자장비 인터페이스"""
     
+    # 🔧 서버 연결 설정 - 여기서 IP만 변경하면 모든 연결이 변경됩니다
+    # 원격 서버 연결: "192.168.0.2"
+    # 로컬 서버 연결: "localhost" 
+    SERVER_HOST = "localhost"  
+    SERVER_PORT = 5300
+    
     # 🔧 GUI 업데이트를 위한 시그널 정의 (스레드 안전성)
     bird_risk_changed_signal = pyqtSignal(str)
     runway_alpha_changed_signal = pyqtSignal(str)
@@ -154,8 +160,13 @@ class PilotAvionics(QMainWindow):
         self.init_timers()
         self.connect_signals()
         
-        # 🔧 GUI 초기화 완료 후 시뮬레이터에 준비 완료 신호 전송
+        # 🔧 GUI 초기화 완료 후 서버 연결 시도 및 준비 완료 신호 전송
         QTimer.singleShot(1000, self.signal_gui_ready)  # 1초 후 신호 전송
+        
+        # 서버 연결 재시도 타이머 설정
+        self.server_retry_timer = QTimer()
+        self.server_retry_timer.timeout.connect(self.retry_server_connection)
+        self.server_connection_failed = False
         
         print("🚁 FALCON Pilot Avionics Interface 초기화 완료")
     
@@ -396,15 +407,60 @@ class PilotAvionics(QMainWindow):
     def init_controller(self):
         """컨트롤러 초기화"""
         try:
+            print(f"[GUI] 🔧 컨트롤러 초기화 중... (서버: {self.SERVER_HOST}:{self.SERVER_PORT})")
+            
+            # 🔧 마이크 디바이스 확인 및 선택
+            self.check_and_setup_microphone()
+            
             # 런타임에 지연 로딩된 함수 가져오기
             if not hasattr(self, '_voice_controller_func'):
                 _, self._voice_controller_func = get_voice_controller()
             
-            self.controller = self._voice_controller_func(
-                server_host="localhost",
-                server_port=5300,
-                use_simulator=False,  # 실제 TCP 서버 사용
-                stt_model="small"
+            # 🔧 선택된 마이크로 AudioIO 인스턴스 직접 생성
+            from audio_io.mic_speaker_io import AudioIO
+            selected_mic_index = getattr(self, 'selected_mic_index', None)
+            
+            print(f"[GUI] 🎤 AudioIO 생성 - 마이크 인덱스: {selected_mic_index}")
+            audio_io = AudioIO(input_device_index=selected_mic_index)
+            
+            # 컨트롤러 생성 - 커스텀 AudioIO 사용
+            print(f"[GUI] 🔧 컨트롤러 생성 중 (마이크: {getattr(self, 'selected_mic_name', '기본 마이크')})")
+            
+            # VoiceInteractionController를 직접 생성
+            from main_controller.main_controller import VoiceInteractionController
+            from engine import WhisperSTTEngine, UnifiedTTSEngine
+            from request_handler import RequestClassifier, TCPServerClient, ResponseProcessor
+            from session_handler import SessionManager
+            
+            # 각 모듈 직접 초기화
+            stt_engine = WhisperSTTEngine(model_name="small", language="en", device="auto")
+            query_parser = RequestClassifier()
+            
+            # TCP 기반 서버 클라이언트
+            main_server_client = TCPServerClient(
+                server_host=self.SERVER_HOST,
+                server_port=self.SERVER_PORT,
+                use_simulator=False
+            )
+            
+            response_processor = ResponseProcessor()
+            tts_engine = UnifiedTTSEngine(
+                use_coqui=True,
+                coqui_model="tts_models/en/ljspeech/tacotron2-DDC",
+                fallback_to_pyttsx3=True,
+                device="cuda"
+            )
+            session_manager = SessionManager()
+            
+            # VoiceInteractionController 생성 (선택된 마이크 사용)
+            self.controller = VoiceInteractionController(
+                audio_io=audio_io,  # 🔧 선택된 마이크가 포함된 AudioIO 사용
+                stt_engine=stt_engine,
+                query_parser=query_parser,
+                main_server_client=main_server_client,
+                response_processor=response_processor,
+                tts_engine=tts_engine,
+                session_manager=session_manager
             )
             
             # 이벤트 핸들러 초기화
@@ -427,8 +483,12 @@ class PilotAvionics(QMainWindow):
         try:
             from event_handler import EventManager, EventProcessor, EventTTS
             
-            # 이벤트 매니저 초기화
-            self.event_manager = EventManager(server_host="localhost", server_port=5300, use_simulator=False)
+            # 이벤트 매니저 초기화 - 시뮬레이터 fallback 비활성화
+            self.event_manager = EventManager(
+                server_host=self.SERVER_HOST, 
+                server_port=self.SERVER_PORT, 
+                use_simulator=False  # 시뮬레이터 fallback 비활성화
+            )
             self.event_processor = EventProcessor()
             self.event_tts = EventTTS(self.controller.tts_engine if self.controller else None)
             
@@ -444,17 +504,21 @@ class PilotAvionics(QMainWindow):
             self.event_manager.register_handler("RWY_A_STATUS_CHANGED", self.on_runway_alpha_changed)  # 수정됨
             self.event_manager.register_handler("RWY_B_STATUS_CHANGED", self.on_runway_bravo_changed)  # 수정됨
             
-            # 이벤트 매니저 연결
+            # 이벤트 매니저 연결 - 실패시 시뮬레이터로 fallback하지 않음
             self.event_manager.connect()
             
-            print("[GUI] 이벤트 핸들러 설정 완료")
+            print("[GUI] 이벤트 핸들러 설정 완료 (시뮬레이터 fallback 비활성화)")
             
         except Exception as e:
             print(f"[GUI] ❌ 이벤트 핸들러 설정 오류: {e}")
-            # 이벤트 처리 없이 계속 진행
+            print(f"[GUI] 🔄 서버 연결 실패 - 10초 후 재시도 시작")
+            # 이벤트 처리 임시 비활성화하고 재시도 준비
             self.event_manager = None
             self.event_processor = None
             self.event_tts = None
+            self.server_connection_failed = True
+            # 10초 후부터 5초마다 서버 연결 재시도
+            self.server_retry_timer.start(10000)  # 10초 후 시작
     
     def thread_safe_event_tts_update(self, tts_message: str):
         """스레드 안전한 이벤트 TTS 업데이트 - 녹음 중 차단"""
@@ -478,9 +542,135 @@ class PilotAvionics(QMainWindow):
                 self.event_manager.signal_gui_ready()
                 print("[GUI] ✅ GUI 준비 완료 신호를 이벤트 매니저에 전송")
             else:
-                print("[GUI] ⚠️ 이벤트 매니저가 없어 GUI 준비 완료 신호를 전송할 수 없음")
+                if hasattr(self, 'server_connection_failed') and self.server_connection_failed:
+                    print("[GUI] ⚠️ 서버 연결 실패 상태 - 재시도 중...")
+                else:
+                    print("[GUI] ⚠️ 이벤트 매니저가 없어 GUI 준비 완료 신호를 전송할 수 없음")
         except Exception as e:
             print(f"[GUI] ❌ GUI 준비 완료 신호 전송 오류: {e}")
+    
+    def retry_server_connection(self):
+        """서버 연결 재시도"""
+        print(f"[GUI] 🔄 서버 연결 재시도 중... ({self.SERVER_HOST}:{self.SERVER_PORT})")
+        try:
+            # 기존 이벤트 매니저가 있으면 정리
+            if hasattr(self, 'event_manager') and self.event_manager:
+                try:
+                    self.event_manager.disconnect()
+                except:
+                    pass
+            
+            # 새로운 이벤트 매니저로 연결 시도
+            from event_handler import EventManager, EventProcessor, EventTTS
+            
+            self.event_manager = EventManager(
+                server_host=self.SERVER_HOST, 
+                server_port=self.SERVER_PORT, 
+                use_simulator=False  # 시뮬레이터 fallback 비활성화
+            )
+            self.event_processor = EventProcessor()
+            self.event_tts = EventTTS(self.controller.tts_engine if self.controller else None)
+            
+            # EventTTS에 스레드 안전한 GUI 콜백 설정
+            if self.event_tts:
+                self.event_tts.set_gui_callback(self.thread_safe_event_tts_update)
+                self.event_tts.set_recording_checker(self.is_recording_or_processing)
+            
+            # 이벤트 핸들러 등록
+            self.event_manager.register_handler("BR_CHANGED", self.on_bird_risk_changed)
+            self.event_manager.register_handler("RWY_A_STATUS_CHANGED", self.on_runway_alpha_changed)
+            self.event_manager.register_handler("RWY_B_STATUS_CHANGED", self.on_runway_bravo_changed)
+            
+            # 연결 시도
+            self.event_manager.connect()
+            
+            print(f"[GUI] ✅ 서버 연결 재시도 성공! ({self.SERVER_HOST}:{self.SERVER_PORT})")
+            self.server_connection_failed = False
+            self.server_retry_timer.stop()  # 재시도 타이머 중지
+            
+            # GUI 준비 완료 신호 전송
+            self.signal_gui_ready()
+            
+        except Exception as e:
+            print(f"[GUI] ❌ 서버 연결 재시도 실패: {e}")
+            # 이벤트 처리 다시 비활성화
+            self.event_manager = None
+            self.event_processor = None
+            self.event_tts = None
+            
+            # 타이머 간격을 5초로 변경하여 계속 재시도
+            self.server_retry_timer.stop()
+            self.server_retry_timer.start(5000)  # 5초마다 재시도
+    
+    def check_and_setup_microphone(self):
+        """마이크 디바이스 확인 및 설정"""
+        try:
+            print("[GUI] 🎤 마이크 디바이스 검색 중...")
+            
+            # AudioIO의 마이크 디바이스 리스트 기능 사용
+            from audio_io.mic_speaker_io import AudioIO
+            
+            # 사용 가능한 마이크 디바이스 리스트 출력
+            devices = AudioIO.list_input_devices()
+            
+            # 헤드셋/USB 마이크 우선 선택
+            selected_device_index = None
+            selected_device_name = ""
+            
+            print("[GUI] 🔍 헤드셋/USB 마이크 검색 중...")
+            
+            # 우선순위: USB 헤드셋 > USB 마이크 > PipeWire > 헤드셋 > 내장 마이크 > 기본
+            priority_groups = [
+                (['usb', 'headset'], "USB 헤드셋"),  # USB 헤드셋 최우선
+                (['usb', 'mic'], "USB 마이크"),      # USB 마이크
+                (['headset'], "헤드셋"),             # 헤드셋
+                (['pipewire'], "PipeWire 오디오"),   # PipeWire 시스템
+                (['usb'], "USB 장치"),               # 일반 USB 장치
+                (['alc233'], "내장 마이크"),         # 내장 마이크도 사용 가능
+                (['hw:'], "ALSA 하드웨어 장치"),     # ALSA 하드웨어 장치
+            ]
+            
+            for keywords, description in priority_groups:
+                for device in devices:
+                    name_lower = device['name'].lower()
+                    if any(keyword in name_lower for keyword in keywords):
+                        # 완전히 제외할 키워드 (실제로 사용할 수 없는 것들만)
+                        exclude_keywords = ['built-in monitor', 'loopback', 'null']
+                        if not any(exclude in name_lower for exclude in exclude_keywords):
+                            selected_device_index = device['index']
+                            selected_device_name = device['name']
+                            print(f"[GUI] ✅ 마이크 선택: {selected_device_name} (인덱스: {selected_device_index}) - {description}")
+                            break
+                
+                if selected_device_index is not None:
+                    break
+            
+            # 우선 마이크를 찾지 못한 경우 기본 마이크 선택
+            if selected_device_index is None:
+                # 마지막으로 기본 마이크 선택
+                for device in devices:
+                    if 'default' in device['name'].lower():
+                        selected_device_index = device['index']
+                        selected_device_name = device['name']
+                        print(f"[GUI] 📢 기본 마이크 선택: {selected_device_name} (인덱스: {selected_device_index})")
+                        break
+                
+                if selected_device_index is None:
+                    print("[GUI] ⚠️ 사용 가능한 마이크를 찾지 못했습니다")
+                    selected_device_index = None  # 시스템 기본값
+                    selected_device_name = "시스템 기본 마이크"
+            
+            # 선택된 마이크 정보 저장
+            self.selected_mic_index = selected_device_index
+            self.selected_mic_name = selected_device_name
+            
+            print(f"[GUI] 🎤 최종 선택된 마이크: {selected_device_name}")
+            print(f"[GUI] 📋 마이크 인덱스: {selected_device_index}")
+            
+        except Exception as e:
+            print(f"[GUI] ❌ 마이크 설정 오류: {e}")
+            self.selected_mic_index = None
+            self.selected_mic_name = "기본 마이크"
     
     def is_recording_or_processing(self) -> bool:
         """녹음 또는 음성 처리 중인지 확인"""
@@ -867,7 +1057,7 @@ class PilotAvionics(QMainWindow):
         self.init_mic_monitoring()
     
     def init_mic_monitoring(self):
-        """실시간 마이크 레벨 모니터링 초기화 - 간단한 PyAudio 사용"""
+        """실시간 마이크 레벨 모니터링 초기화 - 선택된 마이크 사용"""
         try:
             import pyaudio
             import numpy as np
@@ -875,26 +1065,32 @@ class PilotAvionics(QMainWindow):
             
             print("[GUI] 마이크 모니터링 초기화 시작...")
             
-            # 간단한 PyAudio 설정
+            # 선택된 마이크 디바이스 사용
+            selected_mic_index = getattr(self, 'selected_mic_index', None)
+            selected_mic_name = getattr(self, 'selected_mic_name', '기본 마이크')
+            
+            print(f"[GUI] 🎤 모니터링 마이크: {selected_mic_name} (인덱스: {selected_mic_index})")
+            
+            # PyAudio 설정 - 선택된 마이크 사용
             self.mic_audio = pyaudio.PyAudio()
             self.mic_chunk_size = 1024
             self.mic_sample_rate = 44100
             self.mic_format = pyaudio.paInt16
             self.mic_channels = 1
+            self.mic_device_index = selected_mic_index  # 🔧 선택된 마이크 인덱스 사용
             
             # 실시간 레벨 저장용 변수
             self.current_mic_level = 0
             self.mic_monitoring_active = True
-            # 일시정지 기능 완전 제거 - 항상 실시간 모니터링
             
             # 마이크 모니터링 스레드 시작
             self.mic_monitor_thread = threading.Thread(target=self._monitor_mic_level_simple, daemon=True)
             self.mic_monitor_thread.start()
             
-            print("[GUI] OK 간단한 마이크 레벨 모니터링 시작")
+            print(f"[GUI] ✅ 마이크 레벨 모니터링 시작: {selected_mic_name}")
             
         except Exception as e:
-            print(f"[GUI] FAIL 마이크 모니터링 초기화 실패: {e}")
+            print(f"[GUI] ❌ 마이크 모니터링 초기화 실패: {e}")
             self.mic_audio = None
             self.current_mic_level = 0
     
@@ -937,6 +1133,7 @@ class PilotAvionics(QMainWindow):
                                 channels=self.mic_channels,
                                 rate=self.mic_sample_rate,
                                 input=True,
+                                input_device_index=self.mic_device_index,  # 🔧 선택된 마이크 사용
                                 frames_per_buffer=self.mic_chunk_size
                             )
                             print("[GUI] DEBUG 마이크 스트림 생성 성공!")
@@ -1891,6 +2088,8 @@ class PilotAvionics(QMainWindow):
                 self.mic_timer.stop()
             if hasattr(self, 'recording_timer'):
                 self.recording_timer.stop()
+            if hasattr(self, 'server_retry_timer'):
+                self.server_retry_timer.stop()
             
             print("[GUI] 리소스 정리 완료")
             
