@@ -29,7 +29,7 @@ class VoiceInteractionController:
             각 모듈 인스턴스들 (None이면 기본값으로 생성)
         """
         # 모듈 초기화 (None이면 기본 인스턴스 생성)
-        self.audio_io = audio_io or AudioIO()
+        self.audio_io = audio_io or AudioIO.create_with_best_mic()
         self.stt_engine = stt_engine or WhisperSTTEngine(model_name="small", language="en", device="auto")
         self.query_parser = query_parser or RequestClassifier()
         
@@ -619,7 +619,7 @@ def create_voice_controller(
         print(f"  시뮬레이터 폴백: {'활성화' if use_simulator else '비활성화'}")
         
         # 각 모듈 초기화
-        audio_io = AudioIO()
+        audio_io = AudioIO.create_with_best_mic()
         stt_engine = WhisperSTTEngine(model_name=stt_model, language="en", device="auto")
         query_parser = RequestClassifier()
         

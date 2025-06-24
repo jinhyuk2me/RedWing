@@ -19,6 +19,7 @@ class AudioIO:
         self.audio = pyaudio.PyAudio()
         self.is_recording = False
         self.recorded_frames = []
+        self.current_stream = None  # 현재 활성 스트림 추적
         
         # 마이크 장치 정보 출력
         self._print_audio_device_info()
@@ -213,33 +214,63 @@ class AudioIO:
     
     @classmethod
     def create_with_best_mic(cls, **kwargs):
-        """최적의 마이크를 자동으로 선택하여 AudioIO 생성"""
-        # 1. PipeWire USB 마이크 검색
-        print("[AudioIO] PipeWire USB 마이크 검색 시도...")
-        pipewire_audio = cls.create_with_pipewire_usb(**kwargs)
-        if pipewire_audio.input_device_index is not None:
-            return pipewire_audio
+        """시스템에서 가장 적합한 마이크 선택 (pipewire 우선)"""
+        print("[AudioIO] 최적 마이크 검색...")
         
-        # 2. USB 마이크 강제 설정 시도
-        print("[AudioIO] USB 마이크 강제 설정 시도...")
-        usb_audio = cls.create_with_usb_mic_force(**kwargs)
+        audio = pyaudio.PyAudio()
+        best_device_index = None
+        device_priority = {}
         
-        # 3. 일반 USB 마이크 검색
-        if usb_audio.input_device_index is None:
-            print("[AudioIO] 일반 USB 마이크 검색...")
-            usb_audio = cls.create_with_usb_mic(**kwargs)
-            if usb_audio.input_device_index is not None:
-                return usb_audio
+        # 디바이스 우선순위 점수 시스템
+        for i in range(audio.get_device_count()):
+            try:
+                device_info = audio.get_device_info_by_index(i)
+                if device_info['maxInputChannels'] > 0:
+                    name_lower = device_info['name'].lower()
+                    score = 0
+                    
+                    # pipewire는 최고 우선순위
+                    if 'pipewire' in name_lower:
+                        score += 100
+                        print(f"[AudioIO] 🎯 pipewire 디바이스 발견: {device_info['name']} (점수: 100)")
+                    
+                    # USB 마이크 (ABKO N550) 두 번째 우선순위
+                    elif any(keyword in name_lower for keyword in ['abko', 'n550', 'usb']):
+                        score += 80
+                        print(f"[AudioIO] 🎤 USB 마이크 발견: {device_info['name']} (점수: 80)")
+                    
+                    # 외장 디바이스 (hw:2 등)
+                    elif 'hw:2' in name_lower or 'card 2' in name_lower:
+                        score += 60
+                        print(f"[AudioIO] 🔌 외장 디바이스 발견: {device_info['name']} (점수: 60)")
+                    
+                    # 일반 외장 마이크
+                    elif not any(builtin in name_lower for builtin in ['built-in', 'alc233', 'alc897', 'intel', 'hw:0']):
+                        score += 40
+                        print(f"[AudioIO] 🎙️ 외장 마이크 후보: {device_info['name']} (점수: 40)")
+                    
+                    # 내장 마이크는 낮은 점수
+                    else:
+                        score += 10
+                        print(f"[AudioIO] 🔊 내장 마이크: {device_info['name']} (점수: 10)")
+                    
+                    device_priority[i] = (score, device_info)
+                    
+            except Exception as e:
+                print(f"[AudioIO] ⚠️ 디바이스 {i} 정보 조회 실패: {e}")
         
-        # 4. ALSA USB 장치 시도 (카드 2)
-        print("[AudioIO] ALSA 직접 접근 시도...")
-        alsa_audio = cls.create_with_alsa_device(card=2, device=0, **kwargs)
-        if alsa_audio.input_device_index is not None:
-            return alsa_audio
+        audio.terminate()
         
-        # 5. 내장 마이크 사용 (장치 0 - 하드웨어 직접 접근)
-        print("[AudioIO] 외장 마이크를 찾을 수 없어 내장 마이크를 사용합니다.")
-        return cls(input_device_index=0, **kwargs)  # HDA Intel PCH 직접 사용
+        if device_priority:
+            # 점수가 가장 높은 디바이스 선택
+            best_device_index = max(device_priority.keys(), key=lambda x: device_priority[x][0])
+            best_score, best_device_info = device_priority[best_device_index]
+            
+            print(f"[AudioIO] 🏆 최적 디바이스 선택: {best_device_info['name']} (인덱스: {best_device_index}, 점수: {best_score})")
+            return cls(input_device_index=best_device_index, **kwargs)
+        else:
+            print("[AudioIO] ⚠️ 사용 가능한 마이크를 찾을 수 없어 기본 설정을 사용합니다.")
+            return cls(**kwargs)
     
     def start_recording(self):
         """
@@ -317,78 +348,241 @@ class AudioIO:
     
     def record_audio(self, duration: float = 5.0) -> bytes:
         """
-        지정된 시간 동안 마이크로부터 WAV 포맷 음성 녹음 (단순하고 안정적인 방식)
+        지정된 시간 동안 마이크로부터 WAV 포맷 음성 녹음 (개선된 안정성)
         """
-        print(f"[AudioIO] 🎤 {duration}초 녹음 시작 (단순 방식)")
+        print(f"[AudioIO] 🎤 {duration}초 녹음 시작 (개선된 방식)")
         frames = []
         
+        # 기존 스트림 정리
+        self._close_existing_stream()
+        
+        # PyAudio 재초기화로 디바이스 충돌 방지
         try:
-            # 🆕 가장 기본적인 설정으로 스트림 열기
-            stream = self.audio.open(
-                format=pyaudio.paInt16,  # 명시적으로 16비트
-                channels=1,              # 모노
-                rate=22050,              # 낮은 샘플레이트로 안정성 확보
-                input=True,
-                input_device_index=self.input_device_index,
-                frames_per_buffer=1024   # 작은 버퍼 크기
-            )
-            
-            print(f"[AudioIO] ✅ 스트림 열기 성공 (22050Hz, 1024 버퍼)")
-            
-            # 🆕 간단한 동기 녹음
-            chunk_size = 1024
-            sample_rate = 22050
-            total_chunks = int(sample_rate / chunk_size * duration)
-            
-            print(f"[AudioIO] 📊 총 {total_chunks}개 청크 녹음 예정...")
-            
-            # 🆕 실제 녹음 루프 (타임아웃 없는 단순 방식)
-            for i in range(total_chunks):
-                try:
-                    data = stream.read(chunk_size)
-                    frames.append(data)
-                    
-                    # 진행률 표시 (25% 단위)
-                    if i % (total_chunks // 4) == 0:
-                        progress = (i + 1) / total_chunks * 100
-                        print(f"[AudioIO] 📈 진행률: {progress:.0f}% ({i+1}/{total_chunks})")
-                        
-                except Exception as e:
-                    print(f"[AudioIO] ⚠️ 청크 {i+1} 오류: {e}")
-                    # 오류 시 무음 데이터 추가
-                    frames.append(b'\x00' * (chunk_size * 2))
-            
-            # 스트림 정리
-            stream.stop_stream()
-            stream.close()
-            
-            print(f"[AudioIO] ✅ 녹음 완료: {len(frames)}개 청크")
-            
-            # WAV 파일 생성
-            if not frames:
-                print("[AudioIO] ❌ 녹음된 데이터가 없습니다")
-                return b""
-            
-            wav_buffer = io.BytesIO()
-            with wave.open(wav_buffer, 'wb') as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)  # 16비트 = 2바이트
-                wf.setframerate(22050)
-                wf.writeframes(b''.join(frames))
-            
-            wav_data = wav_buffer.getvalue()
-            wav_buffer.close()
-            
-            wav_size = len(wav_data)
-            print(f"[AudioIO] 🎵 WAV 파일 생성: {wav_size} bytes")
-            
-            return wav_data
-            
+            if hasattr(self, 'audio'):
+                self.audio.terminate()
+            self.audio = pyaudio.PyAudio()
+            print("[AudioIO] 🔄 PyAudio 재초기화 완료")
         except Exception as e:
-            print(f"[AudioIO] ❌ 녹음 전체 오류: {e}")
-            import traceback
-            traceback.print_exc()
-            return b""
+            print(f"[AudioIO] ⚠️ PyAudio 재초기화 중 오류: {e}")
+        
+        # 표준 샘플 레이트 목록 (호환성 우선순위)
+        sample_rates = [44100, 48000, 16000, 22050]
+        
+        for sample_rate in sample_rates:
+            try:
+                # 📋 디바이스 가용성 사전 확인
+                if not self._check_device_availability():
+                    print("[AudioIO] ❌ 디바이스 사용 불가 - 대안 방법 시도")
+                    return self._fallback_recording(duration)
+                
+                print(f"[AudioIO] 📊 샘플 레이트 시도: {sample_rate}Hz")
+                
+                # 기본적인 설정으로 스트림 열기
+                self.current_stream = self.audio.open(
+                    format=pyaudio.paInt16,  # 명시적으로 16비트
+                    channels=1,              # 모노
+                    rate=sample_rate,        # 호환성 있는 샘플 레이트
+                    input=True,
+                    input_device_index=self.input_device_index,
+                    frames_per_buffer=1024   # 작은 버퍼 크기
+                )
+                
+                print(f"[AudioIO] ✅ 스트림 열기 성공 ({sample_rate}Hz, 1024 버퍼)")
+                
+                # 간단한 동기 녹음
+                chunk_size = 1024
+                total_chunks = int(sample_rate / chunk_size * duration)
+                
+                print(f"[AudioIO] 📊 총 {total_chunks}개 청크 녹음 예정...")
+                
+                # 실제 녹음 루프
+                for i in range(total_chunks):
+                    try:
+                        data = self.current_stream.read(chunk_size, exception_on_overflow=False)
+                        frames.append(data)
+                        
+                        # 진행률 표시 (25% 단위)
+                        if i % (total_chunks // 4) == 0:
+                            progress = (i + 1) / total_chunks * 100
+                            print(f"[AudioIO] 📈 진행률: {progress:.0f}% ({i+1}/{total_chunks})")
+                            
+                    except Exception as e:
+                        print(f"[AudioIO] ⚠️ 청크 {i+1} 오류: {e}")
+                        # 오류 시 무음 데이터 추가
+                        frames.append(b'\x00' * (chunk_size * 2))
+                
+                print(f"[AudioIO] ✅ 녹음 완료: {len(frames)}개 청크 ({sample_rate}Hz)")
+                
+                # WAV 파일 생성
+                if not frames:
+                    print("[AudioIO] ❌ 녹음된 데이터가 없습니다")
+                    return b""
+                
+                try:
+                    wav_buffer = io.BytesIO()
+                    with wave.open(wav_buffer, 'wb') as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)  # 16비트 = 2바이트
+                        wf.setframerate(sample_rate)
+                        wf.writeframes(b''.join(frames))
+                    
+                    wav_data = wav_buffer.getvalue()
+                    wav_buffer.close()
+                    
+                    wav_size = len(wav_data)
+                    print(f"[AudioIO] 🎵 WAV 파일 생성: {wav_size} bytes ({sample_rate}Hz)")
+                    
+                    return wav_data
+                except Exception as e:
+                    print(f"[AudioIO] ❌ WAV 생성 오류: {e}")
+                    return b""
+                
+            except Exception as e:
+                print(f"[AudioIO] ❌ {sample_rate}Hz 녹음 오류: {e}")
+                if sample_rate == sample_rates[-1]:  # 마지막 샘플 레이트도 실패한 경우
+                    print(f"[AudioIO] 🔧 디바이스 정보 재확인:")
+                    self._print_audio_device_info()
+                    # 디바이스 충돌 시 대안 시도
+                    return self._fallback_recording(duration)
+                else:
+                    print(f"[AudioIO] 🔄 다음 샘플 레이트 시도...")
+                    continue
+                
+            finally:
+                # 스트림 정리
+                self._close_existing_stream()
+        
+        # 모든 샘플 레이트 실패 시
+        print("[AudioIO] ❌ 모든 샘플 레이트 실패 - 대안 방법 시도")
+        return self._fallback_recording(duration)
+
+    def _check_device_availability(self) -> bool:
+        """지정된 디바이스가 사용 가능한지 확인"""
+        try:
+            if self.input_device_index is None:
+                device_info = self.audio.get_default_input_device_info()
+                print(f"[AudioIO] 📋 기본 디바이스 확인: {device_info['name']}")
+                return True
+            else:
+                device_info = self.audio.get_device_info_by_index(self.input_device_index)
+                print(f"[AudioIO] 📋 지정 디바이스 확인: {device_info['name']} (인덱스: {self.input_device_index})")
+                
+                # 디바이스가 입력을 지원하는지 확인
+                if device_info['maxInputChannels'] > 0:
+                    print(f"[AudioIO] ✅ 디바이스 입력 채널 수: {device_info['maxInputChannels']}")
+                    return True
+                else:
+                    print(f"[AudioIO] ❌ 디바이스가 입력을 지원하지 않음")
+                    return False
+                    
+        except Exception as e:
+            print(f"[AudioIO] ❌ 디바이스 확인 실패: {e}")
+            return False
+
+    def _fallback_recording(self, duration: float) -> bytes:
+        """디바이스 충돌 시 대안 녹음 방법 (개선된 샘플 레이트 호환성)"""
+        print("[AudioIO] 🔄 대안 녹음 방법 시도...")
+        
+        # 표준 샘플 레이트 목록 (호환성 우선순위)
+        sample_rates = [44100, 48000, 16000, 22050, 8000]
+        
+        # 다른 마이크 디바이스 시도
+        audio = pyaudio.PyAudio()
+        try:
+            # pipewire 디바이스 우선 검색
+            pipewire_devices = []
+            other_devices = []
+            
+            for i in range(audio.get_device_count()):
+                try:
+                    device_info = audio.get_device_info_by_index(i)
+                    if (device_info['maxInputChannels'] > 0 and 
+                        i != self.input_device_index):
+                        
+                        device_name = device_info['name'].lower()
+                        if 'pipewire' in device_name:
+                            pipewire_devices.append((i, device_info))
+                            print(f"[AudioIO] 🎯 pipewire 디바이스 발견: {device_info['name']} (인덱스: {i})")
+                        else:
+                            other_devices.append((i, device_info))
+                            
+                except Exception as e:
+                    print(f"[AudioIO] ⚠️ 디바이스 {i} 정보 조회 실패: {e}")
+                    continue
+            
+            # pipewire 디바이스를 먼저 시도
+            all_devices = pipewire_devices + other_devices
+            
+            for device_idx, device_info in all_devices:
+                print(f"[AudioIO] 🎯 대안 디바이스 시도: {device_info['name']} (인덱스: {device_idx})")
+                
+                # 여러 샘플 레이트 시도
+                for sample_rate in sample_rates:
+                    try:
+                        print(f"[AudioIO] 📊 샘플 레이트 시도: {sample_rate}Hz")
+                        
+                        # 임시로 디바이스 변경하여 녹음 시도
+                        temp_stream = audio.open(
+                            format=pyaudio.paInt16,
+                            channels=1,
+                            rate=sample_rate,
+                            input=True,
+                            input_device_index=device_idx,
+                            frames_per_buffer=1024
+                        )
+                        
+                        frames = []
+                        chunk_size = 1024
+                        total_chunks = int(sample_rate / chunk_size * duration)
+                        
+                        print(f"[AudioIO] 🎤 {sample_rate}Hz로 녹음 시작: {total_chunks}개 청크")
+                        
+                        for j in range(total_chunks):
+                            try:
+                                data = temp_stream.read(chunk_size, exception_on_overflow=False)
+                                frames.append(data)
+                                
+                                # 25% 단위로 진행률 표시
+                                if j % (total_chunks // 4) == 0:
+                                    progress = (j + 1) / total_chunks * 100
+                                    print(f"[AudioIO] 📈 대안 녹음 진행률: {progress:.0f}%")
+                                    
+                            except Exception as chunk_error:
+                                print(f"[AudioIO] ⚠️ 청크 {j+1} 오류: {chunk_error}")
+                                frames.append(b'\x00' * (chunk_size * 2))
+                        
+                        temp_stream.stop_stream()
+                        temp_stream.close()
+                        
+                        print(f"[AudioIO] ✅ 대안 디바이스로 녹음 성공! ({sample_rate}Hz)")
+                        
+                        # WAV 데이터 생성
+                        wav_buffer = io.BytesIO()
+                        with wave.open(wav_buffer, 'wb') as wf:
+                            wf.setnchannels(1)
+                            wf.setsampwidth(2)
+                            wf.setframerate(sample_rate)
+                            wf.writeframes(b''.join(frames))
+                        
+                        wav_data = wav_buffer.getvalue()
+                        wav_buffer.close()
+                        
+                        wav_size = len(wav_data)
+                        print(f"[AudioIO] 🎵 대안 WAV 파일 생성: {wav_size} bytes ({sample_rate}Hz)")
+                        
+                        return wav_data
+                        
+                    except Exception as sample_rate_error:
+                        print(f"[AudioIO] ❌ {sample_rate}Hz 실패: {sample_rate_error}")
+                        continue
+                
+                print(f"[AudioIO] ❌ 디바이스 {device_idx} 모든 샘플 레이트 실패")
+                    
+        finally:
+            audio.terminate()
+        
+        print("[AudioIO] ❌ 모든 대안 방법 실패")
+        return b""
 
     def play_audio(self, audio_bytes: bytes):
         """
@@ -443,6 +637,7 @@ class AudioIO:
         """
         소멸자 - PyAudio 정리
         """
+        self._close_existing_stream()
         if hasattr(self, 'audio'):
             self.audio.terminate()
 
@@ -523,3 +718,17 @@ class AudioIO:
             print(f"  → 🎤 음성 신호 감지됨")
         
         return is_silent
+
+    def _close_existing_stream(self):
+        """기존 스트림을 안전하게 정리"""
+        if self.current_stream is not None:
+            try:
+                if hasattr(self.current_stream, 'is_active') and self.current_stream.is_active():
+                    self.current_stream.stop_stream()
+                if hasattr(self.current_stream, 'is_stopped') and not self.current_stream.is_stopped():
+                    self.current_stream.close()
+                print("[AudioIO] 🧹 기존 스트림 정리 완료")
+            except Exception as e:
+                print(f"[AudioIO] ⚠️ 스트림 정리 중 오류: {e}")
+            finally:
+                self.current_stream = None

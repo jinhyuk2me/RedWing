@@ -130,7 +130,7 @@ class PilotAvionics(QMainWindow):
     # 🔧 서버 연결 설정 - 여기서 IP만 변경하면 모든 연결이 변경됩니다
     # 원격 서버 연결: "192.168.0.2"
     # 로컬 서버 연결: "localhost" 
-    SERVER_HOST = "localhost"  
+    SERVER_HOST = "192.168.0.2"  
     SERVER_PORT = 5300
     
     # 🔧 GUI 업데이트를 위한 시그널 정의 (스레드 안전성)
@@ -619,14 +619,15 @@ class PilotAvionics(QMainWindow):
             
             print("[GUI] 🔍 헤드셋/USB 마이크 검색 중...")
             
-            # 우선순위: USB 헤드셋 > USB 마이크 > PipeWire > 헤드셋 > 내장 마이크 > 기본
+            # 🎤 USB 마이크를 최우선으로 사용 (충돌 방지 기능 적용됨)
             priority_groups = [
                 (['usb', 'headset'], "USB 헤드셋"),  # USB 헤드셋 최우선
-                (['usb', 'mic'], "USB 마이크"),      # USB 마이크
-                (['headset'], "헤드셋"),             # 헤드셋
-                (['pipewire'], "PipeWire 오디오"),   # PipeWire 시스템
+                (['usb', 'mic'], "USB 마이크"),      # USB 마이크 (ABKO N550)
+                (['n550', 'abko'], "ABKO N550 마이크"), # 특정 USB 마이크
                 (['usb'], "USB 장치"),               # 일반 USB 장치
-                (['alc233'], "내장 마이크"),         # 내장 마이크도 사용 가능
+                (['pipewire'], "PipeWire 오디오"),   # PipeWire (충돌 시 대안)
+                (['headset'], "헤드셋"),             # 헤드셋
+                (['alc233'], "내장 마이크"),         # 내장 마이크
                 (['hw:'], "ALSA 하드웨어 장치"),     # ALSA 하드웨어 장치
             ]
             
@@ -1095,7 +1096,7 @@ class PilotAvionics(QMainWindow):
             self.current_mic_level = 0
     
     def _monitor_mic_level_simple(self):
-        """간단한 마이크 레벨 모니터링 (PyAudio 직접 사용) - 강화된 디버깅"""
+        """간단한 마이크 레벨 모니터링 (PyAudio 직접 사용) - 녹음 중 일시 중지 기능 추가"""
         try:
             import numpy as np
             import time
@@ -1118,8 +1119,20 @@ class PilotAvionics(QMainWindow):
                         print(f"[GUI] 마이크 모니터링 활성: level={self.current_mic_level}%")
                         last_debug_time = current_time
                     
-                    # 마이크 모니터링은 항상 활성화 (녹음 중에도 레벨 표시)
-                    # 일시 중지 기능 제거 - 사용자가 실시간으로 마이크 입력을 확인할 수 있도록
+                    # 🔧 녹음 중에는 마이크 모니터링 일시 중지 (디바이스 충돌 방지)
+                    if getattr(self, 'is_recording', False):
+                        if stream:
+                            try:
+                                stream.stop_stream()
+                                stream.close()
+                                print("[GUI] 🔴 녹음 중 - 마이크 모니터링 일시 중지")
+                            except:
+                                pass
+                            stream = None
+                        
+                        self.current_mic_level = 0  # 녹음 중에는 레벨 0으로 표시
+                        time.sleep(0.1)
+                        continue
                     
                     # 스트림이 없으면 새로 생성
                     if not stream:
@@ -1513,9 +1526,8 @@ class PilotAvionics(QMainWindow):
         if self.is_recording or not self.controller:
             return
         
-        # NEW 녹음 중에도 마이크 레벨이 보이도록 모니터링 계속 진행
-        # 마이크 모니터링은 중지하지 않음 (사용자가 입력을 확인할 수 있도록)
-        
+        # 🔴 녹음 시작 - 마이크 모니터링이 일시 중지됩니다
+        print("[GUI] 🔴 녹음 시작 - 마이크 모니터링 일시 중지")
         self.is_recording = True
         if self.btn_voice:
             self.btn_voice.setText("RECORDING...")
@@ -1712,6 +1724,8 @@ class PilotAvionics(QMainWindow):
         
         print(f"[GUI] on_voice_completed 종료")
         
+        # 🟢 녹음 완료 - 마이크 모니터링 재개
+        print("[GUI] 🟢 녹음 완료 - 마이크 모니터링 재개")
         self.is_recording = False
         if self.btn_voice:
             self.btn_voice.setText("VOICE INPUT")
@@ -1766,6 +1780,8 @@ class PilotAvionics(QMainWindow):
     
     def on_voice_error(self, error: str):
         """음성 처리 오류"""
+        # 🟢 오류 발생 - 마이크 모니터링 재개
+        print("[GUI] 🟢 오류 발생 - 마이크 모니터링 재개")
         self.is_recording = False
         if self.btn_voice:
             self.btn_voice.setText("VOICE INPUT")
