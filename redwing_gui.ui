@@ -1,0 +1,475 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>RedWing</class>
+ <widget class="QMainWindow" name="RedWing">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>616</width>
+    <height>347</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>FALCON Pilot Interface - Avionics Style</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow {
+    background-color: #0a0a0a;
+    color: #00ff00;
+}
+
+QWidget {
+    background-color: #0a0a0a;
+    color: #00ff00;
+    font-family: &quot;Courier New&quot;, monospace;
+}
+
+QLabel {
+    color: #00ff00;
+    font-weight: bold;
+}
+
+QLabel#time_utc, QLabel#time_local {
+    color: #00ff00;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+QLabel#title {
+    color: #00ff00;
+    font-size: 24px;
+    font-weight: bold;
+    background-color: #0d0d0d;
+    border: 3px solid #00aa00;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+QLabel#main_status {
+    color: #00ff00;
+    font-size: 18px;
+    font-weight: bold;
+    background-color: #001a00;
+    border: 2px solid #00ff00;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+QPushButton {
+    background-color: #1a1a1a;
+    color: #00ff00;
+    border: 2px solid #00aa00;
+    border-radius: 6px;
+    padding: 8px;
+    font-weight: bold;
+    font-size: 12px;
+}
+
+QPushButton:hover {
+    background-color: #2a2a2a;
+    border-color: #00ff00;
+    color: #66ff66;
+}
+
+QPushButton:pressed {
+    background-color: #0d0d0d;
+    border-color: #00ff00;
+}
+
+QPushButton#voice_button {
+    background-color: #001a33;
+    border: 3px solid #66ccff;
+    color: #66ccff;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+QPushButton#voice_button:hover {
+    background-color: #002244;
+    border-color: #88ddff;
+}
+
+QPushButton#runway_button {
+    background-color: #001a33;
+    border: 2px solid #66ccff;
+    color: #66ccff;
+}
+
+QPushButton#bird_button {
+    background-color: #331a00;
+    border: 2px solid #ffcc66;
+    color: #ffcc66;
+}
+
+QGroupBox {
+    color: #00ff00;
+    border: 2px solid #00aa00;
+    border-radius: 8px;
+    margin-top: 1ex;
+    font-weight: bold;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 5px 0 5px;
+}
+
+QTextEdit#stt_result, QTextEdit#tts_response {
+    background-color: #0d0d0d;
+    color: #00ff00;
+    border: 2px solid #00aa00;
+    border-radius: 4px;
+    padding: 4px;
+    font-family: &quot;Courier New&quot;, monospace;
+    font-size: 11px;
+    selection-background-color: #004400;
+}
+
+QProgressBar {
+    border: 2px solid #00aa00;
+    border-radius: 4px;
+    text-align: center;
+    background-color: #1a1a1a;
+    color: #00ff00;
+}
+
+QProgressBar::chunk {
+    background-color: #00ff00;
+    border-radius: 2px;
+}
+
+QSlider::groove:vertical {
+    background: #1a1a1a;
+    width: 10px;
+    border-radius: 5px;
+    border: 1px solid #00aa00;
+}
+
+QSlider::handle:vertical {
+    background: #00ff00;
+    border: 2px solid #00aa00;
+    height: 24px;
+    border-radius: 12px;
+    margin: 0 -7px;
+}
+
+QStatusBar {
+    background-color: #0d0d0d;
+    color: #00ff00;
+    border-top: 1px solid #00aa00;
+}
+
+</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QLabel" name="title">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>30</y>
+      <width>581</width>
+      <height>60</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>RedWing AVIONICS</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+   </widget>
+   <widget class="QLabel" name="time_utc">
+    <property name="geometry">
+     <rect>
+      <x>360</x>
+      <y>0</y>
+      <width>111</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>UTC: 00:00:00</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="time_local">
+    <property name="geometry">
+     <rect>
+      <x>480</x>
+      <y>0</y>
+      <width>121</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>LOCAL: 00:00:00</string>
+    </property>
+   </widget>
+   <widget class="QGroupBox" name="group_flight_controls">
+    <property name="geometry">
+     <rect>
+      <x>240</x>
+      <y>100</y>
+      <width>361</width>
+      <height>191</height>
+     </rect>
+    </property>
+    <property name="title">
+     <string>AUDIO CONTROLS</string>
+    </property>
+    <widget class="QSlider" name="slider_tts_volume">
+     <property name="geometry">
+      <rect>
+       <x>250</x>
+       <y>29</y>
+       <width>30</width>
+       <height>141</height>
+      </rect>
+     </property>
+     <property name="minimum">
+      <number>0</number>
+     </property>
+     <property name="maximum">
+      <number>100</number>
+     </property>
+     <property name="value">
+      <number>70</number>
+     </property>
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+    </widget>
+    <widget class="QProgressBar" name="progress_mic_level">
+     <property name="geometry">
+      <rect>
+       <x>300</x>
+       <y>30</y>
+       <width>30</width>
+       <height>141</height>
+      </rect>
+     </property>
+     <property name="minimum">
+      <number>0</number>
+     </property>
+     <property name="maximum">
+      <number>100</number>
+     </property>
+     <property name="value">
+      <number>0</number>
+     </property>
+     <property name="textVisible">
+      <bool>false</bool>
+     </property>
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="marshall_button">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>110</y>
+       <width>211</width>
+       <height>60</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton {
+    background-color: #001a00;
+    border: 3px solid #00ff00;
+    color: #00ff00;
+    font-size: 16px;
+    font-weight: bold;
+    font-family: &quot;Courier New&quot;, monospace;
+    border-radius: 6px;
+    padding: 8px;
+}
+
+QPushButton:hover {
+    background-color: #003300;
+    border-color: #66ff66;
+    color: #66ff66;
+}
+
+QPushButton:pressed {
+    background-color: #0d1a0d;
+    border-color: #00ff00;
+    color: #00ff00;
+}</string>
+     </property>
+     <property name="text">
+      <string>START MARSHALL</string>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="voice_button">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>40</y>
+       <width>211</width>
+       <height>61</height>
+      </rect>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton {
+    background-color: #001a00;
+    border: 3px solid #00ff00;
+    color: #00ff00;
+    font-size: 16px;
+    font-weight: bold;
+    font-family: &quot;Courier New&quot;, monospace;
+    border-radius: 6px;
+    padding: 8px;
+}
+
+QPushButton:hover {
+    background-color: #003300;
+    border-color: #66ff66;
+    color: #66ff66;
+}
+
+QPushButton:pressed {
+    background-color: #0d1a0d;
+    border-color: #00ff00;
+    color: #00ff00;
+}</string>
+     </property>
+     <property name="text">
+      <string>VOICE INPUT</string>
+     </property>
+    </widget>
+   </widget>
+   <widget class="QProgressBar" name="progress_voice">
+    <property name="geometry">
+     <rect>
+      <x>310</x>
+      <y>320</y>
+      <width>380</width>
+      <height>25</height>
+     </rect>
+    </property>
+    <property name="visible">
+     <bool>false</bool>
+    </property>
+    <property name="value">
+     <number>0</number>
+    </property>
+   </widget>
+   <widget class="QLabel" name="status_runway_a">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>180</y>
+      <width>211</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QLabel {
+    color: #009900;
+    font-weight: bold;
+    background-color: #000800;
+    border: 2px solid #006600;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: &quot;Courier New&quot;, monospace;
+}</string>
+    </property>
+    <property name="text">
+     <string>RWY ALPHA: STANDBY</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="status_runway_b">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>220</y>
+      <width>211</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QLabel {
+    color: #009900;
+    font-weight: bold;
+    background-color: #000800;
+    border: 2px solid #006600;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: &quot;Courier New&quot;, monospace;
+}</string>
+    </property>
+    <property name="text">
+     <string>RWY BRAVO: STANDBY</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="status_bird_risk">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>260</y>
+      <width>211</width>
+      <height>31</height>
+     </rect>
+    </property>
+    <property name="styleSheet">
+     <string notr="true">QLabel {
+    color: #009900;
+    font-weight: bold;
+    background-color: #000800;
+    border: 2px solid #006600;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: &quot;Courier New&quot;, monospace;
+}</string>
+    </property>
+    <property name="text">
+     <string>BIRD LEVEL: STANDBY</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="main_status">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>100</y>
+      <width>211</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>READY</string>
+    </property>
+    <property name="alignment">
+     <set>Qt::AlignCenter</set>
+    </property>
+   </widget>
+   <widget class="QProgressBar" name="progressBar_voice">
+    <property name="geometry">
+     <rect>
+      <x>20</x>
+      <y>150</y>
+      <width>211</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="value">
+     <number>24</number>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>616</width>
+     <height>23</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

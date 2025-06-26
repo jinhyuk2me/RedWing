@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-dl-falcon Pilot Avionics Interface
+dl-falcon RedWing Interface
 항공전자장비 스타일 파일럿 인터페이스 - .ui 파일 기반
 음성 인터페이스, 활주로 상태, 조류 위험도 모니터링 통합
 """
@@ -16,10 +16,9 @@ from typing import Optional
 try:
     from PyQt6.QtWidgets import (
         QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
-        QTextEdit, QProgressBar, QSlider, QMessageBox, QWidget, QGroupBox
+        QProgressBar, QSlider, QMessageBox, QWidget, QGroupBox
     )
     from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QMutex, QEventLoop
-    from PyQt6.QtGui import QTextCursor
     from PyQt6 import uic
 except ImportError:
     print("FAIL PyQt6가 설치되지 않았습니다. 설치하려면:")
@@ -124,14 +123,11 @@ class VoiceWorkerThread(QThread):
             print(f"[VoiceWorkerThread] FAIL 음성 처리 오류: {e}")
             self.voice_error.emit(str(e))
 
-class PilotAvionics(QMainWindow):
-    """FALCON Pilot Avionics Interface - 메인 항공전자장비 인터페이스"""
+class RedWing(QMainWindow):
     
-    # 🔧 서버 연결 설정 - 여기서 IP만 변경하면 모든 연결이 변경됩니다
-    # 원격 서버 연결: "192.168.0.2"
-    # 로컬 서버 연결: "localhost" 
     SERVER_HOST = "192.168.0.2"  
     SERVER_PORT = 5300
+    FALLBACK_HOST = "localhost"  # 연결 실패 시 fallback
     
     # 🔧 GUI 업데이트를 위한 시그널 정의 (스레드 안전성)
     bird_risk_changed_signal = pyqtSignal(str)
@@ -168,11 +164,11 @@ class PilotAvionics(QMainWindow):
         self.server_retry_timer.timeout.connect(self.retry_server_connection)
         self.server_connection_failed = False
         
-        print("🚁 FALCON Pilot Avionics Interface 초기화 완료")
+        print("🚁 RedWing Interface 초기화 완료")
     
     def load_ui(self):
         """UI 파일 로드"""
-        ui_file = os.path.join(os.path.dirname(__file__), "pilot_gui.ui")
+        ui_file = os.path.join(os.path.dirname(__file__), "redwing_gui.ui")
         
         if not os.path.exists(ui_file):
             raise FileNotFoundError(f"UI 파일을 찾을 수 없습니다: {ui_file}")
@@ -188,14 +184,7 @@ class PilotAvionics(QMainWindow):
         
         # 버튼들
         self.btn_voice = self.findChild(QPushButton, "voice_button")
-        self.btn_status = self.findChild(QPushButton, "btn_status")
-        self.btn_toggle = self.findChild(QPushButton, "btn_toggle")
-        
-        # 상태 라벨들 (시스템 상태)
-        self.status_audio_io = self.findChild(QLabel, "status_audio_io")
-        self.status_stt_engine = self.findChild(QLabel, "status_stt_engine")
-        self.status_tts_engine = self.findChild(QLabel, "status_tts_engine")
-        self.status_main_server = self.findChild(QLabel, "status_main_server")
+        self.btn_marshall = self.findChild(QPushButton, "marshall_button")  # START MARSHALL 버튼
         
         # 활주로 및 조류 상태 라벨들
         self.status_runway_a = self.findChild(QLabel, "status_runway_a")
@@ -232,7 +221,6 @@ class PilotAvionics(QMainWindow):
         self.progress_voice = self.findChild(QProgressBar, "progressBar_voice")
         self.progress_mic_level = self.findChild(QProgressBar, "progress_mic_level")
         self.slider_tts_volume = self.findChild(QSlider, "slider_tts_volume")
-        self.label_tts_value = self.findChild(QLabel, "label_tts_value")
         
         # MIC LEVEL 프로그레스바 디버깅
         print(f"[GUI] 프로그레스바 찾기 결과:")
@@ -307,75 +295,13 @@ class PilotAvionics(QMainWindow):
                     color: #808080;
                 }
             """)
-        if self.label_tts_value:
-            self.label_tts_value.setText("50")
-        
-        # NEW 텍스트 에디트들 - 고유한 이름으로 직접 찾기
-        self.text_stt_result = self.findChild(QTextEdit, "stt_result")
-        self.text_tts_response = self.findChild(QTextEdit, "tts_response")
+        # TTS 볼륨 라벨은 UI에서 제거됨
         
         print(f"[GUI] 위젯 할당 결과:")
         print(f"  - UTC 시간 라벨: {self.label_utc_time is not None}")
         print(f"  - LOCAL 시간 라벨: {self.label_local_time is not None}")
-        print(f"  - STT 결과 텍스트: {self.text_stt_result is not None}")
-        print(f"  - TTS 응답 텍스트: {self.text_tts_response is not None}")
-        
-        # 🔧 위젯 상세 정보 출력 (디버깅용)
-        if self.text_tts_response:
-            print(f"[GUI] ✅ TTS 위젯 정보:")
-            print(f"  - 이름: {self.text_tts_response.objectName()}")
-            print(f"  - 타입: {type(self.text_tts_response).__name__}")
-            print(f"  - 가시성: {self.text_tts_response.isVisible()}")
-            print(f"  - 활성화: {self.text_tts_response.isEnabled()}")
-        else:
-            print(f"[GUI] ❌ TTS 위젯이 None입니다!")
-        
-        # OK TTS 위젯이 None인 경우 강제로 모든 QTextEdit 검색
-        if self.text_tts_response is None:
-            print(f"[GUI] FAIL TTS 위젯을 찾을 수 없음! 전체 검색 시작...")
-            all_text_edits = self.findChildren(QTextEdit)
-            print(f"[GUI] 전체 QTextEdit 위젯: {len(all_text_edits)}개")
-            for i, widget in enumerate(all_text_edits):
-                object_name = widget.objectName()
-                print(f"[GUI]   {i}: '{object_name}'")
-                if object_name == "tts_response":
-                    self.text_tts_response = widget
-                    print(f"[GUI] OK TTS 위젯 발견 및 할당: {object_name}")
-                elif object_name == "stt_result" and self.text_stt_result is None:
-                    self.text_stt_result = widget
-                    print(f"[GUI] OK STT 위젯 발견 및 할당: {object_name}")
-        
-        # 🔧 TTS/STT 위젯 가시성 강제 설정
-        if self.text_stt_result:
-            self.text_stt_result.setVisible(True)
-            self.text_stt_result.setEnabled(True)
-            self.text_stt_result.clear()
-            print(f"[GUI] OK STT 위젯 초기화 (비움) 및 가시성 설정")
-        else:
-            print(f"[GUI] WARN STT 위젯이 None입니다!")
-            
-        if self.text_tts_response:
-            self.text_tts_response.setVisible(True)
-            self.text_tts_response.setEnabled(True)
-            self.text_tts_response.clear()
-            # 🔧 테스트 텍스트로 위젯 동작 확인
-            self.text_tts_response.setText("TTS 위젯 준비 완료 - 응답 대기 중...")
-            print(f"[GUI] OK TTS 위젯 초기화 및 테스트 텍스트 설정")
-            
-            # 잠시 후 초기화
-            QTimer.singleShot(2000, lambda: self.text_tts_response.clear())
-        else:
-            print(f"[GUI] WARN TTS 위젯이 None입니다!")
-        
-        # 🔧 그룹박스들도 가시성 설정
-        group_stt = self.findChild(QGroupBox, "group_stt_result")
-        group_tts = self.findChild(QGroupBox, "group_tts_response")
-        if group_stt:
-            group_stt.setVisible(True)
-            print(f"[GUI] OK STT 그룹박스 가시성 설정")
-        if group_tts:
-            group_tts.setVisible(True)
-            print(f"[GUI] OK TTS 그룹박스 가시성 설정")
+        print(f"  - START MARSHALL 버튼: {self.btn_marshall is not None}")
+        print(f"  - VOICE INPUT 버튼: {self.btn_voice is not None}")
         
         # NEW 초기 시간 설정 (안전하게)
         try:
@@ -391,8 +317,7 @@ class PilotAvionics(QMainWindow):
         # 버튼 연결
         if self.btn_voice:
             self.btn_voice.clicked.connect(self.start_voice_input)
-        if self.btn_status:
-            self.btn_status.clicked.connect(self.show_system_status)
+        # START MARSHALL 버튼은 나중에 구현 예정
         
         # 슬라이더 연결
         if self.slider_tts_volume:
@@ -436,12 +361,8 @@ class PilotAvionics(QMainWindow):
             stt_engine = WhisperSTTEngine(model_name="small", language="en", device="auto")
             query_parser = RequestClassifier()
             
-            # TCP 기반 서버 클라이언트
-            main_server_client = TCPServerClient(
-                server_host=self.SERVER_HOST,
-                server_port=self.SERVER_PORT,
-                use_simulator=False
-            )
+            # TCP 기반 서버 클라이언트 - fallback 로직 포함
+            main_server_client = self._create_server_client_with_fallback()
             
             response_processor = ResponseProcessor()
             tts_engine = UnifiedTTSEngine(
@@ -479,13 +400,35 @@ class PilotAvionics(QMainWindow):
             QMessageBox.critical(self, "Initialization Error", f"System initialization failed:\n{e}")
     
     def setup_event_handlers(self):
-        """이벤트 핸들러 설정"""
+        """이벤트 핸들러 설정 - localhost fallback 포함"""
+        # 먼저 기본 서버로 시도
+        if self._try_connect_event_manager(self.SERVER_HOST):
+            return
+        
+        # 기본 서버 실패 시 localhost로 fallback 시도
+        print(f"[GUI] 🔄 기본 서버({self.SERVER_HOST}) 연결 실패 - localhost로 fallback 시도")
+        if self._try_connect_event_manager(self.FALLBACK_HOST):
+            return
+        
+        # 모든 연결 실패
+        print(f"[GUI] ❌ 모든 서버 연결 실패 - 재시도 모드로 전환")
+        self.event_manager = None
+        self.event_processor = None
+        self.event_tts = None
+        self.server_connection_failed = True
+        # 10초 후부터 5초마다 서버 연결 재시도
+        self.server_retry_timer.start(10000)  # 10초 후 시작
+    
+    def _try_connect_event_manager(self, host: str) -> bool:
+        """특정 호스트로 이벤트 매니저 연결 시도"""
         try:
+            print(f"[GUI] 🔌 이벤트 매니저 연결 시도: {host}:{self.SERVER_PORT}")
+            
             from event_handler import EventManager, EventProcessor, EventTTS
             
-            # 이벤트 매니저 초기화 - 시뮬레이터 fallback 비활성화
+            # 이벤트 매니저 초기화
             self.event_manager = EventManager(
-                server_host=self.SERVER_HOST, 
+                server_host=host, 
                 server_port=self.SERVER_PORT, 
                 use_simulator=False  # 시뮬레이터 fallback 비활성화
             )
@@ -501,24 +444,88 @@ class PilotAvionics(QMainWindow):
             
             # 🔧 TCP 프로토콜 명세에 맞는 이벤트 핸들러 등록
             self.event_manager.register_handler("BR_CHANGED", self.on_bird_risk_changed)
-            self.event_manager.register_handler("RWY_A_STATUS_CHANGED", self.on_runway_alpha_changed)  # 수정됨
-            self.event_manager.register_handler("RWY_B_STATUS_CHANGED", self.on_runway_bravo_changed)  # 수정됨
+            self.event_manager.register_handler("RWY_A_STATUS_CHANGED", self.on_runway_alpha_changed)
+            self.event_manager.register_handler("RWY_B_STATUS_CHANGED", self.on_runway_bravo_changed)
             
-            # 이벤트 매니저 연결 - 실패시 시뮬레이터로 fallback하지 않음
-            self.event_manager.connect()
+            # 이벤트 매니저 연결 시도
+            success = self.event_manager.connect()
             
-            print("[GUI] 이벤트 핸들러 설정 완료 (시뮬레이터 fallback 비활성화)")
+            if success:
+                print(f"[GUI] ✅ 이벤트 핸들러 설정 완료: {host}:{self.SERVER_PORT}")
+                return True
+            else:
+                print(f"[GUI] ❌ 이벤트 매니저 연결 실패: {host}:{self.SERVER_PORT}")
+                # 실패한 매니저 정리
+                if hasattr(self, 'event_manager') and self.event_manager:
+                    try:
+                        self.event_manager.disconnect()
+                    except:
+                        pass
+                self.event_manager = None
+                self.event_processor = None
+                self.event_tts = None
+                return False
             
         except Exception as e:
-            print(f"[GUI] ❌ 이벤트 핸들러 설정 오류: {e}")
-            print(f"[GUI] 🔄 서버 연결 실패 - 10초 후 재시도 시작")
-            # 이벤트 처리 임시 비활성화하고 재시도 준비
+            print(f"[GUI] ❌ 이벤트 핸들러 설정 오류 ({host}): {e}")
+            # 실패한 매니저 정리
+            if hasattr(self, 'event_manager') and self.event_manager:
+                try:
+                    self.event_manager.disconnect()
+                except:
+                    pass
             self.event_manager = None
             self.event_processor = None
             self.event_tts = None
-            self.server_connection_failed = True
-            # 10초 후부터 5초마다 서버 연결 재시도
-            self.server_retry_timer.start(10000)  # 10초 후 시작
+            return False
+    
+    def _create_server_client_with_fallback(self):
+        """서버 클라이언트 생성 - localhost fallback 포함"""
+        from request_handler import TCPServerClient
+        
+        # 먼저 기본 서버로 시도
+        try:
+            print(f"[GUI] 🔌 서버 클라이언트 연결 시도: {self.SERVER_HOST}:{self.SERVER_PORT}")
+            client = TCPServerClient(
+                server_host=self.SERVER_HOST,
+                server_port=self.SERVER_PORT,
+                use_simulator=False
+            )
+            # 간단한 연결 테스트
+            if hasattr(client, 'tcp_client') and client.tcp_client.connect():
+                print(f"[GUI] ✅ 서버 클라이언트 연결 성공: {self.SERVER_HOST}:{self.SERVER_PORT}")
+                client.tcp_client.disconnect()  # 테스트 연결 해제
+                return client
+            else:
+                print(f"[GUI] ❌ 서버 클라이언트 연결 실패: {self.SERVER_HOST}:{self.SERVER_PORT}")
+        except Exception as e:
+            print(f"[GUI] ❌ 서버 클라이언트 생성 오류 ({self.SERVER_HOST}): {e}")
+        
+        # 기본 서버 실패 시 localhost로 fallback
+        try:
+            print(f"[GUI] 🔄 서버 클라이언트 localhost fallback 시도: {self.FALLBACK_HOST}:{self.SERVER_PORT}")
+            client = TCPServerClient(
+                server_host=self.FALLBACK_HOST,
+                server_port=self.SERVER_PORT,
+                use_simulator=False
+            )
+            # 간단한 연결 테스트
+            if hasattr(client, 'tcp_client') and client.tcp_client.connect():
+                print(f"[GUI] ✅ 서버 클라이언트 localhost 연결 성공: {self.FALLBACK_HOST}:{self.SERVER_PORT}")
+                client.tcp_client.disconnect()  # 테스트 연결 해제
+                return client
+            else:
+                print(f"[GUI] ❌ 서버 클라이언트 localhost 연결 실패: {self.FALLBACK_HOST}:{self.SERVER_PORT}")
+        except Exception as e:
+            print(f"[GUI] ❌ 서버 클라이언트 localhost 생성 오류: {e}")
+        
+        # 모든 연결 실패 - 기본 클라이언트 반환 (시뮬레이터 없이)
+        print(f"[GUI] ⚠️ 모든 서버 연결 실패 - 기본 클라이언트 반환")
+        return TCPServerClient(
+            server_host=self.SERVER_HOST,  # 기본 호스트로 설정 (나중에 재시도용)
+            server_port=self.SERVER_PORT,
+            use_simulator=False
+        )
     
     def thread_safe_event_tts_update(self, tts_message: str):
         """스레드 안전한 이벤트 TTS 업데이트 - 녹음 중 차단"""
@@ -550,57 +557,41 @@ class PilotAvionics(QMainWindow):
             print(f"[GUI] ❌ GUI 준비 완료 신호 전송 오류: {e}")
     
     def retry_server_connection(self):
-        """서버 연결 재시도"""
-        print(f"[GUI] 🔄 서버 연결 재시도 중... ({self.SERVER_HOST}:{self.SERVER_PORT})")
-        try:
-            # 기존 이벤트 매니저가 있으면 정리
-            if hasattr(self, 'event_manager') and self.event_manager:
-                try:
-                    self.event_manager.disconnect()
-                except:
-                    pass
-            
-            # 새로운 이벤트 매니저로 연결 시도
-            from event_handler import EventManager, EventProcessor, EventTTS
-            
-            self.event_manager = EventManager(
-                server_host=self.SERVER_HOST, 
-                server_port=self.SERVER_PORT, 
-                use_simulator=False  # 시뮬레이터 fallback 비활성화
-            )
-            self.event_processor = EventProcessor()
-            self.event_tts = EventTTS(self.controller.tts_engine if self.controller else None)
-            
-            # EventTTS에 스레드 안전한 GUI 콜백 설정
-            if self.event_tts:
-                self.event_tts.set_gui_callback(self.thread_safe_event_tts_update)
-                self.event_tts.set_recording_checker(self.is_recording_or_processing)
-            
-            # 이벤트 핸들러 등록
-            self.event_manager.register_handler("BR_CHANGED", self.on_bird_risk_changed)
-            self.event_manager.register_handler("RWY_A_STATUS_CHANGED", self.on_runway_alpha_changed)
-            self.event_manager.register_handler("RWY_B_STATUS_CHANGED", self.on_runway_bravo_changed)
-            
-            # 연결 시도
-            self.event_manager.connect()
-            
-            print(f"[GUI] ✅ 서버 연결 재시도 성공! ({self.SERVER_HOST}:{self.SERVER_PORT})")
+        """서버 연결 재시도 - localhost fallback 포함"""
+        print(f"[GUI] 🔄 서버 연결 재시도 중...")
+        
+        # 기존 이벤트 매니저가 있으면 정리
+        if hasattr(self, 'event_manager') and self.event_manager:
+            try:
+                self.event_manager.disconnect()
+            except:
+                pass
+        
+        # 먼저 기본 서버로 재시도
+        if self._try_connect_event_manager(self.SERVER_HOST):
             self.server_connection_failed = False
             self.server_retry_timer.stop()  # 재시도 타이머 중지
-            
-            # GUI 준비 완료 신호 전송
             self.signal_gui_ready()
-            
-        except Exception as e:
-            print(f"[GUI] ❌ 서버 연결 재시도 실패: {e}")
-            # 이벤트 처리 다시 비활성화
-            self.event_manager = None
-            self.event_processor = None
-            self.event_tts = None
-            
-            # 타이머 간격을 5초로 변경하여 계속 재시도
-            self.server_retry_timer.stop()
-            self.server_retry_timer.start(5000)  # 5초마다 재시도
+            return
+        
+        # 기본 서버 실패 시 localhost로 재시도
+        print(f"[GUI] 🔄 기본 서버 재시도 실패 - localhost로 재시도")
+        if self._try_connect_event_manager(self.FALLBACK_HOST):
+            self.server_connection_failed = False
+            self.server_retry_timer.stop()  # 재시도 타이머 중지
+            self.signal_gui_ready()
+            return
+        
+        # 모든 재시도 실패
+        print(f"[GUI] ❌ 모든 서버 재시도 실패 - 5초 후 다시 시도")
+        # 이벤트 처리 다시 비활성화
+        self.event_manager = None
+        self.event_processor = None
+        self.event_tts = None
+        
+        # 타이머 간격을 5초로 변경하여 계속 재시도
+        self.server_retry_timer.stop()
+        self.server_retry_timer.start(5000)  # 5초마다 재시도
     
     def check_and_setup_microphone(self):
         """마이크 디바이스 확인 및 설정"""
@@ -849,54 +840,13 @@ class PilotAvionics(QMainWindow):
         return f"Status update: {result}"
     
     def update_tts_display_with_event(self, tts_message: str):
-        """TTS 디스플레이에 이벤트 메시지 추가"""
-        print(f"[GUI] 🔔 update_tts_display_with_event 시작 - 메시지: '{tts_message[:50]}...'")
+        """이벤트 TTS 메시지 처리 (콘솔 로그만)"""
+        print(f"[GUI] 🔔 이벤트 TTS 메시지: '{tts_message}'")
         
-        try:
-            from datetime import datetime
-            
-            # 위젯 상태 확인
-            print(f"[GUI] 🔍 이벤트 TTS 위젯 상태:")
-            print(f"  - self.text_tts_response is None: {self.text_tts_response is None}")
-            if self.text_tts_response:
-                print(f"  - 위젯 가시성: {self.text_tts_response.isVisible()}")
-                print(f"  - 위젯 활성화: {self.text_tts_response.isEnabled()}")
-            
-            if hasattr(self, 'text_tts_response') and self.text_tts_response:
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                
-                # 이벤트 메시지를 구분하여 표시
-                event_line = f"[{timestamp}] 🔔 EVENT: {tts_message}"
-                
-                # 기존 내용이 있으면 위에 추가
-                current_text = self.text_tts_response.toPlainText()
-                if current_text.strip():
-                    new_text = f"{event_line}\n{current_text}"
-                else:
-                    new_text = event_line
-                
-                print(f"[GUI] 🔧 이벤트 TTS 텍스트 설정 시도:")
-                print(f"  - 기존 텍스트 길이: {len(current_text)}")
-                print(f"  - 새 텍스트 길이: {len(new_text)}")
-                
-                self.text_tts_response.setText(new_text)
-                print(f"[GUI] ✅ 이벤트 TTS 텍스트 설정 성공")
-                
-                # 스크롤을 맨 위로 (최신 이벤트가 보이도록)
-                cursor = self.text_tts_response.textCursor()
-                cursor.movePosition(QTextCursor.MoveOperation.Start)
-                self.text_tts_response.setTextCursor(cursor)
-                
-                # 확인용으로 설정된 텍스트 다시 읽기
-                verification_text = self.text_tts_response.toPlainText()
-                print(f"[GUI] 🔍 이벤트 설정 후 확인 - 텍스트 길이: {len(verification_text)}")
-            else:
-                print(f"[GUI] ❌ 이벤트 TTS - 위젯이 None입니다!")
-        
-        except Exception as e:
-            print(f"[GUI] ❌ TTS 디스플레이 업데이트 오류: {e}")
-        
-        print(f"[GUI] 🔔 update_tts_display_with_event 종료")
+        # TTS 응답 텍스트 위젯이 UI에서 제거되어 콘솔 로그로만 처리
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"[GUI] [{timestamp}] EVENT TTS: {tts_message}")
     
     def update_bird_risk_display(self, risk_level: str):
         """조류 위험도 디스플레이 업데이트"""
@@ -1369,13 +1319,6 @@ class PilotAvionics(QMainWindow):
         # NEW 실용적인 음소거 처리 (0-5 범위에서 음소거, 사용자 시스템 테스트 기반)
         is_muted = value <= 5
         
-        # 라벨 업데이트
-        if self.label_tts_value:
-            if is_muted:
-                self.label_tts_value.setText("MUTE")
-            else:
-                self.label_tts_value.setText(str(value))
-        
         # NEW 슬라이더 색상 업데이트 (음소거 상태 시각적 표현)
         if self.slider_tts_volume:
             if is_muted:
@@ -1498,28 +1441,9 @@ class PilotAvionics(QMainWindow):
             print(f"[GUI] 시스템 상태 업데이트 스킵: 녹음 중")
             return
         
+        # 시스템 상태 라벨들이 UI에서 제거되어 콘솔 로그로만 확인
         status = self.controller.get_system_status()
-        
-        # 상태 라벨들 업데이트 (메인 상태 제외)
-        status_labels = {
-            'audio_io': self.status_audio_io,
-            'stt_engine': self.status_stt_engine,
-            'tts_engine': self.status_tts_engine,
-            'main_server_available': self.status_main_server
-        }
-        
-        for key, label in status_labels.items():
-            if key in status:
-                value = status[key]
-                label.setText(f"{key}: {value}")
-                
-                # 색상 설정
-                if value == "OPERATIONAL" or value == True:
-                    label.setStyleSheet("color: #00ff00;")
-                elif value == "FAILED" or value == False:
-                    label.setStyleSheet("color: #ff4444;")
-                else:
-                    label.setStyleSheet("color: #ffaa00;")
+        print(f"[GUI] 시스템 상태: {status}")
     
     def start_voice_input(self):
         """음성 입력 시작"""
@@ -1572,29 +1496,7 @@ class PilotAvionics(QMainWindow):
         """STT 결과 처리"""
         print(f"[GUI] STT RESULT: '{text}' (confidence: {confidence:.2f})")
         
-        if self.text_stt_result:
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            formatted_text = f"[{timestamp}] 🎤 STT: {text}"
-            
-            # 기존 내용이 있으면 위에 추가
-            current_text = self.text_stt_result.toPlainText()
-            if current_text.strip():
-                new_text = f"{formatted_text}\n{current_text}"
-            else:
-                new_text = formatted_text
-                
-            self.text_stt_result.setText(new_text)
-            
-            # 스크롤을 맨 위로 (최신 STT 결과가 보이도록)
-            cursor = self.text_stt_result.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.Start)
-            self.text_stt_result.setTextCursor(cursor)
-            
-            print(f"[GUI] OK STT 결과 텍스트 에디트 업데이트 완료")
-        else:
-            print(f"[GUI] FAIL STT 결과 텍스트 에디트가 None입니다!")
-            
+        # STT 결과 텍스트 위젯이 UI에서 제거되어 콘솔 로그로만 처리
         if hasattr(self, 'statusbar') and self.statusbar:
             self.statusbar.showMessage(f"Voice recognition completed: {text}")
     
@@ -1605,99 +1507,8 @@ class PilotAvionics(QMainWindow):
         if tts_text:
             print(f"[GUI] TTS TEXT READY 즉시 GUI에 전달: '{tts_text[:50]}...'")
             
-            # 위젯 상태 상세 확인
-            print(f"[GUI] 🔍 TTS 위젯 상태 확인:")
-            print(f"  - self.text_tts_response is None: {self.text_tts_response is None}")
-            if self.text_tts_response:
-                print(f"  - 위젯 타입: {type(self.text_tts_response)}")
-                print(f"  - 위젯 이름: {self.text_tts_response.objectName()}")
-                print(f"  - 위젯 가시성: {self.text_tts_response.isVisible()}")
-                print(f"  - 위젯 활성화: {self.text_tts_response.isEnabled()}")
-            
-            if self.text_tts_response:
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%H:%M:%S")
-                formatted_text = f"[{timestamp}] 🔊 RESPONSE: {tts_text}"
-                
-                # 기존 내용이 있으면 위에 추가
-                current_text = self.text_tts_response.toPlainText()
-                if current_text.strip():
-                    new_text = f"{formatted_text}\n{current_text}"
-                else:
-                    new_text = formatted_text
-                    
-                print(f"[GUI] 🔧 TTS 텍스트 설정 시도:")
-                print(f"  - 기존 텍스트 길이: {len(current_text)}")
-                print(f"  - 새 텍스트 길이: {len(new_text)}")
-                
-                try:
-                    # 🔧 Qt 메인 스레드에서 UI 업데이트 보장
-                    def update_tts_ui():
-                        self.text_tts_response.setText(new_text)
-                        print(f"[GUI] ✅ TTS 텍스트 설정 성공")
-                        
-                        # 스크롤을 맨 위로 (최신 TTS 응답이 보이도록)
-                        cursor = self.text_tts_response.textCursor()
-                        cursor.movePosition(QTextCursor.MoveOperation.Start)
-                        self.text_tts_response.setTextCursor(cursor)
-                        
-                        # 확인용으로 설정된 텍스트 다시 읽기
-                        verification_text = self.text_tts_response.toPlainText()
-                        print(f"[GUI] 🔍 설정 후 확인 - 텍스트 길이: {len(verification_text)}")
-                    
-                    # 메인 스레드에서 UI 업데이트 실행
-                    QTimer.singleShot(0, update_tts_ui)
-                    
-                except Exception as e:
-                    print(f"[GUI] ❌ TTS 텍스트 설정 오류: {e}")
-                
-                print(f"[GUI] OK TTS 응답 설정 완료")
-            else:
-                print(f"[GUI] ❌ TTS 위젯이 None - 위젯 재탐색 시도")
-                
-                # 모든 QTextEdit 위젯 다시 찾기
-                all_text_edits = self.findChildren(QTextEdit)
-                print(f"[GUI] 전체 QTextEdit 위젯 수: {len(all_text_edits)}")
-                
-                for i, widget in enumerate(all_text_edits):
-                    name = widget.objectName()
-                    print(f"[GUI]   위젯 {i}: '{name}'")
-                    if name == "tts_response":
-                        self.text_tts_response = widget
-                        print(f"[GUI] ✅ TTS 위젯 재할당 성공")
-                        
-                        # 재할당된 위젯으로 텍스트 설정
-                        from datetime import datetime
-                        timestamp = datetime.now().strftime("%H:%M:%S")
-                        formatted_text = f"[{timestamp}] 🔊 RESPONSE: {tts_text}"
-                        
-                        # 기존 내용이 있으면 위에 추가
-                        current_text = self.text_tts_response.toPlainText()
-                        if current_text.strip():
-                            new_text = f"{formatted_text}\n{current_text}"
-                        else:
-                            new_text = formatted_text
-                        
-                        # 🔧 Qt 메인 스레드에서 UI 업데이트 보장
-                        def update_reassigned_tts_ui():
-                            self.text_tts_response.setText(new_text)
-                            
-                            # 스크롤을 맨 위로 (최신 TTS 응답이 보이도록)
-                            cursor = self.text_tts_response.textCursor()
-                            cursor.movePosition(QTextCursor.MoveOperation.Start)
-                            self.text_tts_response.setTextCursor(cursor)
-                            
-                            print(f"[GUI] ✅ TTS 위젯 재할당 및 텍스트 설정 성공")
-                        
-                        # 메인 스레드에서 UI 업데이트 실행
-                        QTimer.singleShot(0, update_reassigned_tts_ui)
-                        break
-                else:
-                    print(f"[GUI] ❌ tts_response 위젯을 찾을 수 없음!")
-                    # 모든 위젯에 대해 이름과 타입 출력 (디버깅용)
-                    for i, widget in enumerate(all_text_edits):
-                        name = widget.objectName()
-                        print(f"[GUI] 디버깅 - 위젯 {i}: 이름='{name}', 타입={type(widget).__name__}")
+            # TTS 응답 텍스트 위젯이 UI에서 제거되어 콘솔 로그로만 처리
+            print(f"[GUI] TTS 응답: {tts_text}")
             
             # 🔧 서버 응답이 확정되자마자 상태 즉시 업데이트 (TTS 완료 기다리지 않음)
             self.update_status_from_response(tts_text)
@@ -2049,20 +1860,7 @@ class PilotAvionics(QMainWindow):
                 print(f"[GUI] 🦅 BIRD 관련 키워드 없음 - 스킵")
             # 만약 응답에 활주로만 있고 BIRD 정보가 없으면 BIRD LEVEL 업데이트하지 않음
     
-    def show_system_status(self):
-        """시스템 상태 표시"""
-        if not self.controller:
-            return
-        
-        status = self.controller.get_system_status()
-        status_text = "System Status:\n\n"
-        
-        for key, value in status.items():
-            indicator = "[OK]" if value == "OPERATIONAL" or value == True else "[FAIL]" if value == "FAILED" or value == False else "[INFO]"
-            status_text += f"{indicator} {key}: {value}\n"
-        
-        QMessageBox.information(self, "System Status", status_text)
-        self.update_system_status_display()
+    # show_system_status 메서드는 UI에서 해당 버튼이 제거되어 삭제됨
     
 
     
@@ -2120,22 +1918,22 @@ def main():
     app = QApplication(sys.argv)
     
     # 애플리케이션 정보 설정
-    app.setApplicationName("FALCON Pilot Avionics")
+    app.setApplicationName("FALCON RedWing")
     app.setApplicationVersion("1.0")
     app.setOrganizationName("dl-falcon")
     
     try:
-        # Avionics 인터페이스 생성 및 표시
-        avionics = PilotAvionics()
-        avionics.show()
+        # RedWing 인터페이스 생성 및 표시
+        redwing = RedWing()
+        redwing.show()
         
-        print("🎯 FALCON Pilot Avionics Interface 시작됨")
+        print("🎯 FALCON RedWing Interface 시작됨")
         
         # 이벤트 루프 실행
         sys.exit(app.exec())
         
     except Exception as e:
-        print(f"FAIL Avionics Interface 시작 오류: {e}")
+        print(f"FAIL RedWing Interface 시작 오류: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
