@@ -57,12 +57,14 @@ class ImprovedAdaptiveWindowPoseDetector:
     """개선된 다중 윈도우 크기를 사용한 적응형 실시간 포즈 검출"""
     
     def __init__(self, model_path: str = None):
-        # MediaPipe 초기화
+        # MediaPipe 초기화 (경고 해결을 위한 개선된 설정)
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
             static_image_mode=False,
             model_complexity=1,
             enable_segmentation=False,
+            smooth_landmarks=True,
+            smooth_segmentation=True,
             min_detection_confidence=DATA_CONFIG['min_detection_confidence'],
             min_tracking_confidence=DATA_CONFIG['min_tracking_confidence']
         )
@@ -116,7 +118,11 @@ class ImprovedAdaptiveWindowPoseDetector:
         
     def extract_pose_landmarks(self, frame: np.ndarray) -> Optional[np.ndarray]:
         """프레임에서 자세 랜드마크 추출"""
+        # 이미지 크기 정보 설정 (MediaPipe 경고 해결)
+        height, width = frame.shape[:2]
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb_frame.flags.writeable = False
+        
         results = self.pose.process(rgb_frame)
         
         if results.pose_landmarks:

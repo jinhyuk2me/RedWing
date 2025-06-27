@@ -1,18 +1,21 @@
 # -*- coding: utf-8 -*-
 """
 PDS TCN Configuration
-TCN 기반 자세 검출 서버 설정
+TCN 기반 자세 검출 서버 설정 (Main Server와 완전 독립적)
 """
 
-# 서버 설정
+# 🎯 독립적 서버 설정 (Main Server와 무관)
 SERVER_CONFIG = {
-    'redwing_host': '127.0.0.1',  # RedWing 서버 주소
-    'command_port': 5301,         # RedWing → PDS 명령 수신 포트
-    'event_port': 5300,          # PDS → RedWing 이벤트 송신 포트
+    'host': '0.0.0.0',           # 모든 인터페이스에서 접근 가능
+    'port': 8001,                # PDS 전용 포트 (독립적)
+    'redwing_host': 'localhost', # RedWing GUI Server 연결용
+    'redwing_port': 8000,        # RedWing GUI Server 포트
     'max_clients': 5,
     'buffer_size': 4096,
     'encoding': 'utf-8',
-    'delimiter': '\n'
+    'delimiter': '\n',
+    'independent_mode': True,     # Main Server와 완전 독립
+    'auto_connect_redwing': True  # RedWing에 자동 연결
 }
 
 # TCN 모델 설정
@@ -82,22 +85,96 @@ FOLDER_TO_GESTURE = {
     'right': 3
 }
 
-# TTS 메시지 (TCP 통신용 대문자 매핑)
+# TCP 통신용 제스처 이름 매핑 (대문자 변환)
 TCP_GESTURE_NAMES = {
     'stop': 'STOP',
     'forward': 'MOVE_FORWARD',
-    'left': 'TURN_LEFT',
+    'left': 'TURN_LEFT', 
     'right': 'TURN_RIGHT'
 }
 
+# TTS 메시지 (RedWing이 처리하므로 참고용)
 TTS_MESSAGES = {
-    'STOP': 'Stop',
-    'MOVE_FORWARD': 'Move forward',
-    'TURN_LEFT': 'Turn left',
-    'TURN_RIGHT': 'Turn right',
-    'MARSHALING_ACTIVATED': 'Marshaling recognition activated',
-    'MARSHALING_DEACTIVATED': 'Marshaling recognition deactivated'
+    'stop': 'Stop',
+    'forward': 'Move forward',
+    'left': 'Turn left',
+    'right': 'Turn right'
 }
+
+# 🎯 개선된 제스처 확신도 설정
+IMPROVED_GESTURE_CONFIG = {
+    'multi_window_sizes': [30, 45, 60, 90],  # 1초, 1.5초, 2초, 3초
+    'smart_window_selection': True,
+    'dynamic_threshold': {
+        'high': 0.95,      # 높은 정확도 요구 시
+        'medium': 0.85,    # 기본 설정
+        'low': 0.75        # 빠른 응답 요구 시
+    },
+    'motion_completion_detection': True,
+    'prediction_consistency_check': True,
+    'consistency_threshold': 0.7,  # 70% 이상 일관성
+    'confirmation_requirements': {
+        'min_confirmations': 5,
+        'completion_required': True,
+        'cooldown_seconds': 2.0
+    },
+    'confidence_trend_analysis': True,
+    'gesture_transition_detection': True,
+    
+    # 제스처별 최적 윈도우 크기
+    'gesture_optimal_windows': {
+        'stop': [45, 60],      # 정지: 중간 윈도우
+        'forward': [60, 90],   # 전진: 긴 윈도우  
+        'left': [30, 45],      # 좌회전: 짧은 윈도우
+        'right': [30, 45]      # 우회전: 짧은 윈도우
+    },
+    
+    # 일반적인 제스처 전환 패턴
+    'common_transitions': {
+        'stop_to_forward': ['stop', 'stop', 'forward', 'forward'],
+        'left_to_stop': ['left', 'left', 'stop', 'stop'],
+        'right_to_stop': ['right', 'right', 'stop', 'stop'],
+        'forward_to_left': ['forward', 'forward', 'left', 'left'],
+        'forward_to_right': ['forward', 'forward', 'right', 'right']
+    },
+    
+    # 동적 신뢰도 임계값
+    'dynamic_thresholds': {
+        'early_stage': 0.95,    # 초기 단계 (< 0.5초)
+        'mid_stage': 0.85,      # 중간 단계 (0.5-1.0초)
+        'late_stage': 0.80,     # 후반 단계 (1.0-2.0초)
+        'completion': 0.75      # 완료 단계 (> 2.0초)
+    },
+    
+    # 동작 완료 판단 설정
+    'min_motion_duration': 1.2,        # 최소 동작 지속시간 (초)
+    'completion_stable_frames': 20,     # 완료 판단 안정 프레임 수
+    'completion_motion_threshold': 0.005,  # 완료 판단 움직임 임계값
+    'consistency_window_frames': 30,    # 일관성 분석 윈도우 (프레임)
+    'confidence_gradient_min': 0.02,    # 최소 신뢰도 증가율
+    'transition_detection': True,       # 전환 감지 활성화
+}
+
+# 🔧 네트워크 재시도 설정
+NETWORK_CONFIG = {
+    'redwing_connect_retries': 10,
+    'redwing_connect_delay': 3.0,
+    'heartbeat_interval': 30.0,
+    'reconnect_on_failure': True,
+    'connection_timeout': 10.0
+}
+
+def get_port_info():
+    """포트 사용 정보 출력"""
+    print("🎯 Independent PDS Server Configuration")
+    print("=" * 50)
+    print(f"🤚 PDS Server Port       : {SERVER_CONFIG['port']}")
+    print(f"🖥️  RedWing GUI Server   : {SERVER_CONFIG['redwing_port']}")
+    print("=" * 50)
+    print("📊 서버 역할:")
+    print("   - PDS Server: 제스처 인식, 카메라 처리 (Main Server와 완전 독립)")
+    print("   - RedWing GUI Server: 클라이언트 연결 관리, 이벤트 수신")
+    print("=" * 50)
 
 # 모델 및 데이터 경로
 PATHS = {
@@ -123,41 +200,4 @@ LOGGING_CONFIG = {
     'level': 'INFO',
     'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     'log_file': 'logs/pds_tcn.log'
-}
-
-# 개선된 제스처 인식 설정
-IMPROVED_GESTURE_CONFIG = {
-    'min_motion_duration': 1.2,        # 최소 동작 지속시간 (초)
-    'completion_stable_frames': 20,     # 완료 판단 안정 프레임 수
-    'completion_motion_threshold': 0.005,  # 완료 판단 움직임 임계값
-    'consistency_threshold': 0.8,       # 일관성 임계값
-    'consistency_window_frames': 30,    # 일관성 분석 윈도우 (프레임)
-    'confidence_gradient_min': 0.02,    # 최소 신뢰도 증가율
-    'transition_detection': True,       # 전환 감지 활성화
-    'smart_window_selection': True,     # 스마트 윈도우 선택
-    
-    # 동적 신뢰도 임계값
-    'dynamic_thresholds': {
-        'early_stage': 0.95,    # 초기 단계 (< 0.5초)
-        'mid_stage': 0.85,      # 중간 단계 (0.5-1.0초)
-        'late_stage': 0.80,     # 후반 단계 (1.0-2.0초)
-        'completion': 0.75      # 완료 단계 (> 2.0초)
-    },
-    
-    # 제스처별 최적 윈도우 크기
-    'gesture_optimal_windows': {
-        'stop': [45, 60],      # 정지: 중간 윈도우
-        'forward': [60, 90],   # 전진: 긴 윈도우  
-        'left': [30, 45],      # 좌회전: 짧은 윈도우
-        'right': [30, 45]      # 우회전: 짧은 윈도우
-    },
-    
-    # 일반적인 제스처 전환 패턴
-    'common_transitions': {
-        'stop_to_forward': ['stop', 'stop', 'forward', 'forward'],
-        'left_to_stop': ['left', 'left', 'stop', 'stop'],
-        'right_to_stop': ['right', 'right', 'stop', 'stop'],
-        'forward_to_left': ['forward', 'forward', 'left', 'left'],
-        'forward_to_right': ['forward', 'forward', 'right', 'right']
-    }
 } 

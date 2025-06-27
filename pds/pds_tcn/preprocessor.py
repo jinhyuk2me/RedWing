@@ -22,12 +22,14 @@ class PoseDataPreprocessor:
     """MP4 영상에서 자세 데이터 추출 및 전처리"""
     
     def __init__(self):
-        # MediaPipe 설정
+        # MediaPipe 설정 (경고 해결을 위한 개선된 설정)
         self.mp_pose = mp.solutions.pose
         self.pose = self.mp_pose.Pose(
             static_image_mode=False,
             model_complexity=1,
             enable_segmentation=False,
+            smooth_landmarks=True,
+            smooth_segmentation=True,
             min_detection_confidence=DATA_CONFIG['min_detection_confidence'],
             min_tracking_confidence=DATA_CONFIG['min_tracking_confidence']
         )
@@ -63,8 +65,10 @@ class PoseDataPreprocessor:
                 if not ret:
                     break
                     
-                # BGR -> RGB 변환
+                # BGR -> RGB 변환 (MediaPipe 경고 해결을 위한 이미지 크기 정보 설정)
+                height, width = frame.shape[:2]
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                rgb_frame.flags.writeable = False
                 
                 # 자세 검출
                 results = self.pose.process(rgb_frame)
