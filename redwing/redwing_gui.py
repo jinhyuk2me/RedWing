@@ -149,6 +149,8 @@ class RedWing(QMainWindow):
         self.controller: Optional["VoiceInteractionController"] = None
         self.voice_worker: Optional[VoiceWorkerThread] = None
         self.is_recording = False
+        # 🆕 마샬링 상태 변수
+        self.marshaling_active = False
         
         # UI 로드
         self.load_ui()
@@ -317,7 +319,9 @@ class RedWing(QMainWindow):
         # 버튼 연결
         if self.btn_voice:
             self.btn_voice.clicked.connect(self.start_voice_input)
-        # START MARSHALL 버튼은 나중에 구현 예정
+        # 🆕 START MARSHALL 버튼 연결
+        if self.btn_marshall:
+            self.btn_marshall.clicked.connect(self.toggle_marshaling)
         
         # 슬라이더 연결
         if self.slider_tts_volume:
@@ -446,6 +450,8 @@ class RedWing(QMainWindow):
             self.event_manager.register_handler("BR_CHANGED", self.on_bird_risk_changed)
             self.event_manager.register_handler("RWY_A_STATUS_CHANGED", self.on_runway_alpha_changed)
             self.event_manager.register_handler("RWY_B_STATUS_CHANGED", self.on_runway_bravo_changed)
+            # 🆕 마샬링 제스처 이벤트 핸들러 등록
+            self.event_manager.register_handler("MARSHALING_GESTURE_DETECTED", self.on_marshaling_gesture)
             
             # 이벤트 매니저 연결 시도
             success = self.event_manager.connect()
@@ -1862,6 +1868,162 @@ class RedWing(QMainWindow):
     
     # show_system_status 메서드는 UI에서 해당 버튼이 제거되어 삭제됨
     
+    # 🆕 마샬링 관련 함수들
+    def toggle_marshaling(self):
+        """마샬링 인식 시작/중지"""
+        if not self.marshaling_active:
+            # 마샬링 시작
+            self.start_marshaling()
+        else:
+            # 마샬링 중지
+            self.stop_marshaling()
+    
+    def start_marshaling(self):
+        """마샬링 인식 시작"""
+        try:
+            print("[GUI] 🤚 마샬링 인식 시작")
+            self.marshaling_active = True
+            
+            # 버튼 상태 변경
+            if self.btn_marshall:
+                self.btn_marshall.setText("STOP MARSHALL")
+                self.btn_marshall.setStyleSheet("""
+                    QPushButton {
+                        background-color: #1a0000;
+                        border: 3px solid #ff0000;
+                        color: #ff0000;
+                        font-size: 16px;
+                        font-weight: bold;
+                        font-family: "Courier New", monospace;
+                        border-radius: 6px;
+                        padding: 8px;
+                    }
+                    QPushButton:hover {
+                        background-color: #2d0000;
+                        border-color: #ff3333;
+                    }
+                """)
+                
+            # PDS 서버에 마샬링 시작 명령 전송
+            self.send_marshaling_command("MARSHALING_START")
+            
+            # TTS 알림
+            if self.controller and self.controller.tts_engine:
+                self.controller.tts_engine.speak("Marshaling recognition activated")
+                
+        except Exception as e:
+            print(f"[GUI] ❌ 마샬링 시작 오류: {e}")
+    
+    def stop_marshaling(self):
+        """마샬링 인식 중지"""
+        try:
+            print("[GUI] 🛑 마샬링 인식 중지")
+            self.marshaling_active = False
+            
+            # 버튼 상태 변경 
+            if self.btn_marshall:
+                self.btn_marshall.setText("START MARSHALL")
+                self.btn_marshall.setStyleSheet("""
+                    QPushButton {
+                        background-color: #001a00;
+                        border: 3px solid #00ff00;
+                        color: #00ff00;
+                        font-size: 16px;
+                        font-weight: bold;
+                        font-family: "Courier New", monospace;
+                        border-radius: 6px;
+                        padding: 8px;
+                    }
+                    QPushButton:hover {
+                        background-color: #002d00;
+                        border-color: #33ff33;
+                    }
+                """)
+                
+            # PDS 서버에 마샬링 중지 명령 전송
+            self.send_marshaling_command("MARSHALING_STOP")
+            
+            # TTS 알림
+            if self.controller and self.controller.tts_engine:
+                self.controller.tts_engine.speak("Marshaling recognition deactivated")
+            
+            # 메인 상태를 기본으로 복원
+            if self.label_main_status:
+                self.label_main_status.setText("SYSTEM READY")
+                
+        except Exception as e:
+            print(f"[GUI] ❌ 마샬링 중지 오류: {e}")
+    
+    def send_marshaling_command(self, command: str):
+        """PDS 서버에 마샬링 명령 전송 (포트 5301)"""
+        try:
+            import socket
+            import json
+            
+            # PDS 서버 주소 (포트 5301)
+            pds_host = self.SERVER_HOST
+            pds_port = 5301
+            
+            # 명령 메시지 생성
+            command_message = {
+                "type": "command",
+                "command": command
+            }
+            
+            # TCP 소켓으로 전송
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(3.0)  # 3초 타임아웃
+                sock.connect((pds_host, pds_port))
+                message = json.dumps(command_message) + "\n"
+                sock.send(message.encode('utf-8'))
+                print(f"[GUI] 📤 PDS 명령 전송: {command} → {pds_host}:{pds_port}")
+                
+        except Exception as e:
+            print(f"[GUI] ❌ PDS 명령 전송 실패: {e}")
+            # 폴백: localhost로 시도
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(3.0)
+                    sock.connect(("localhost", 5301))
+                    message = json.dumps(command_message) + "\n"
+                    sock.send(message.encode('utf-8'))
+                    print(f"[GUI] 📤 PDS 명령 전송 (localhost): {command}")
+            except Exception as e2:
+                print(f"[GUI] ❌ PDS 명령 전송 완전 실패: {e2}")
+    
+    def on_marshaling_gesture(self, event_data: dict):
+        """마샬링 제스처 이벤트 처리"""
+        try:
+            result = event_data.get('result', 'UNKNOWN')
+            confidence = event_data.get('confidence', 0.0)
+            
+            print(f"[GUI] 🤚 마샬링 제스처 감지: {result} (신뢰도: {confidence:.2f})")
+            
+            # 신뢰도가 70% 이상일 때만 처리
+            if confidence >= 0.7:
+                # 제스처별 TTS 메시지
+                gesture_messages = {
+                    "STOP": "Stop",
+                    "MOVE_FORWARD": "Move forward",
+                    "TURN_LEFT": "Turn left",
+                    "TURN_RIGHT": "Turn right"
+                }
+                
+                message = gesture_messages.get(result, f"Unknown gesture: {result}")
+                
+                # TTS로 제스처 안내
+                if self.controller and self.controller.tts_engine:
+                    self.controller.tts_engine.speak(message)
+                    
+                # 메인 상태 표시 업데이트
+                if self.label_main_status:
+                    self.label_main_status.setText(f"MARSHALING: {result}")
+                    
+            else:
+                print(f"[GUI] 🤚 신뢰도 부족으로 무시: {confidence:.2f} < 0.70")
+                
+        except Exception as e:
+            print(f"[GUI] ❌ 마샬링 제스처 처리 오류: {e}")
 
     
     def closeEvent(self, event):
