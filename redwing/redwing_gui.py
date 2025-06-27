@@ -16,7 +16,7 @@ from typing import Optional
 try:
     from PyQt6.QtWidgets import (
         QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout, QHBoxLayout,
-        QProgressBar, QSlider, QMessageBox, QWidget, QGroupBox
+        QProgressBar, QMessageBox, QWidget, QGroupBox
     )
     from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt, QMutex, QEventLoop
     from PyQt6 import uic
@@ -44,6 +44,7 @@ class VoiceWorkerThread(QThread):
     voice_error = pyqtSignal(str)
     stt_result = pyqtSignal(str, float)  # text, confidence
     tts_text_ready = pyqtSignal(str)  # TTS 텍스트 생성 완료
+    recording_progress = pyqtSignal(int)  # 실제 녹음 진행률
     
     def __init__(self, controller: "VoiceInteractionController"):
         super().__init__()
@@ -80,10 +81,59 @@ class VoiceWorkerThread(QThread):
             self.controller.set_stt_callback(on_stt_completed)
             self.controller.set_tts_callback(on_tts_text_ready)
             
+            # 🎯 실제 녹음 진행률 추적 스레드 시작
+            import threading
+            import time
+            
+            def recording_progress_tracker():
+                """실제 녹음 진행률 추적 - 실시간 타이밍 기반"""
+                import time
+                duration = self.recording_duration
+                steps = 50  # 50단계
+                
+                # 초기화 시간 고려하여 약간 지연 후 시작
+                time.sleep(0.3)  # AudioIO 초기화 시간 고려
+                
+                start_time = time.time()
+                self.recording_progress.emit(0)
+                
+                while hasattr(self, '_recording_active') and self._recording_active:
+                    current_time = time.time()
+                    elapsed_time = current_time - start_time
+                    
+                    # 실제 경과 시간 기준으로 진행률 계산
+                    progress = min(steps, int((elapsed_time / duration) * steps))
+                    self.recording_progress.emit(progress)
+                    
+                    # 완료되면 종료
+                    if elapsed_time >= duration:
+                        self.recording_progress.emit(steps)  # 100% 완료
+                        break
+                    
+                    # 더 정밀한 업데이트 (50ms마다)
+                    time.sleep(0.05)
+            
+            # 녹음 시작 시그널
+            self._recording_active = True
+            progress_thread = threading.Thread(target=recording_progress_tracker, daemon=True)
+            progress_thread.start()
+            
+            # 🎯 실제 녹음 시간 측정
+            actual_start_time = time.time()
+            print(f"[VoiceWorkerThread] ⏱️ 실제 녹음 시작: {self.recording_duration}초 예정")
+            
             # 음성 상호작용 처리 (콜사인 없이)
             interaction = self.controller.handle_voice_interaction(
                 recording_duration=self.recording_duration
             )
+            
+            # 실제 녹음 시간 계산
+            actual_end_time = time.time()
+            actual_duration = actual_end_time - actual_start_time
+            print(f"[VoiceWorkerThread] ⏱️ 실제 녹음 완료: {actual_duration:.2f}초 (예정: {self.recording_duration}초)")
+            
+            # 녹음 완료 시그널
+            self._recording_active = False
             
             # OK 간단한 요약만 출력 (전체 객체 출력 금지)
             print(f"[VoiceWorkerThread] 🔄 상호작용 완료:")
@@ -125,213 +175,134 @@ class VoiceWorkerThread(QThread):
 
 class RedWing(QMainWindow):
     
-    SERVER_HOST = "192.168.0.2"  
-    SERVER_PORT = 5300
-    FALLBACK_HOST = "localhost"  # 연결 실패 시 fallback
+    SERVER_HOST = "localhost"  # 새로운 RedWing GUI Server로 연결
+    SERVER_PORT = 8000         # RedWing GUI Server 포트
+    FALLBACK_HOST = "127.0.0.1"  # 연결 실패 시 fallback
     
     # 🔧 GUI 업데이트를 위한 시그널 정의 (스레드 안전성)
     bird_risk_changed_signal = pyqtSignal(str)
     runway_alpha_changed_signal = pyqtSignal(str)
     runway_bravo_changed_signal = pyqtSignal(str)
     event_tts_signal = pyqtSignal(str)  # 🔧 이벤트 TTS용 시그널 추가
+    reset_status_signal = pyqtSignal()  # 🔧 상태 리셋용 시그널 추가
     
     def __init__(self, stt_manager=None, tts_manager=None, api_client=None, 
                  use_keyboard_shortcuts=True, parent=None):
         """GUI 초기화"""
         super().__init__(parent)
         
-        # Core managers 설정
-        self.stt_manager = stt_manager
-        self.tts_manager = tts_manager
-        self.api_client = api_client
+        # 초기화 상태 변수
+        self.initialization_success = False
         
-        # 컨트롤러 초기화
-        self.controller: Optional["VoiceInteractionController"] = None
-        self.voice_worker: Optional[VoiceWorkerThread] = None
-        self.is_recording = False
-        # 🆕 마샬링 상태 변수
-        self.marshaling_active = False
-        
-        # UI 로드
-        self.load_ui()
-        self.init_controller()
-        self.init_timers()
-        self.connect_signals()
-        
-        # 🔧 GUI 초기화 완료 후 서버 연결 시도 및 준비 완료 신호 전송
-        QTimer.singleShot(1000, self.signal_gui_ready)  # 1초 후 신호 전송
-        
-        # 서버 연결 재시도 타이머 설정
-        self.server_retry_timer = QTimer()
-        self.server_retry_timer.timeout.connect(self.retry_server_connection)
-        self.server_connection_failed = False
-        
-        print("🚁 RedWing Interface 초기화 완료")
+        try:
+            # Core managers 설정
+            self.stt_manager = stt_manager
+            self.tts_manager = tts_manager
+            self.api_client = api_client
+            
+            # 컨트롤러 초기화
+            self.controller: Optional["VoiceInteractionController"] = None
+            self.voice_worker: Optional[VoiceWorkerThread] = None
+            self.is_recording = False
+            # 🆕 마샬링 상태 변수
+            self.marshaling_active = False
+            
+            # 서버 연결 재시도 관리 (스레드 안전)
+            self.server_retry_active = False
+            self.server_connection_failed = False
+            
+            print("🔧 UI 로드 중...")
+            # UI 로드
+            self.load_ui()
+            
+            print("🔧 컨트롤러 초기화 중...")
+            # 컨트롤러 초기화 (선택적으로 실행)
+            try:
+                self.init_controller()
+            except Exception as controller_error:
+                print(f"⚠️ 컨트롤러 초기화 실패 (계속 진행): {controller_error}")
+                self.controller = None
+            
+            print("🔧 타이머 초기화 중...")
+            # 타이머 초기화
+            self.init_timers()
+            
+            print("🔧 시그널 연결 중...")
+            # 시그널 연결
+            self.connect_signals()
+            
+            # 🔧 GUI 초기화 완료 후 서버 연결 시도 및 준비 완료 신호 전송 (스레드 안전)
+            threading.Timer(1.0, lambda: self.signal_gui_ready()).start()  # 1초 후 신호 전송
+            
+            self.initialization_success = True
+            print("🚁 RedWing Interface 초기화 완료")
+            
+        except Exception as e:
+            print(f"❌ RedWing Interface 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            self.initialization_success = False
+            # 초기화 실패해도 GUI는 표시되도록 함
+            self.setWindowTitle("RedWing Interface (초기화 실패)")
+            if hasattr(self, 'label_main_status'):
+                self.label_main_status.setText("INIT FAILED")
+                self.label_main_status.setStyleSheet("background-color: #330000; color: #ff4444;")
     
     def load_ui(self):
         """UI 파일 로드"""
-        ui_file = os.path.join(os.path.dirname(__file__), "redwing_gui.ui")
-        
-        if not os.path.exists(ui_file):
-            raise FileNotFoundError(f"UI 파일을 찾을 수 없습니다: {ui_file}")
-        
-        # .ui 파일 로드
-        uic.loadUi(ui_file, self)
-        
-        # 위젯 참조 설정
-        self.label_title = self.findChild(QLabel, "title")
-        self.label_utc_time = self.findChild(QLabel, "time_utc")
-        self.label_local_time = self.findChild(QLabel, "time_local")
-        self.label_main_status = self.findChild(QLabel, "main_status")
-        
-        # 버튼들
-        self.btn_voice = self.findChild(QPushButton, "voice_button")
-        self.btn_marshall = self.findChild(QPushButton, "marshall_button")  # START MARSHALL 버튼
-        
-        # 활주로 및 조류 상태 라벨들
-        self.status_runway_a = self.findChild(QLabel, "status_runway_a")
-        self.status_runway_b = self.findChild(QLabel, "status_runway_b")
-        self.status_bird_risk = self.findChild(QLabel, "status_bird_risk")
-        
-        # 🔧 상태 라벨 디버깅
-        print(f"[GUI] 상태 라벨 찾기 결과:")
-        print(f"  - status_runway_a: {self.status_runway_a is not None}")
-        print(f"  - status_runway_b: {self.status_runway_b is not None}")
-        print(f"  - status_bird_risk: {self.status_bird_risk is not None}")
-        
-        # 라벨을 찾지 못한 경우 전체 QLabel 검색
-        if not self.status_bird_risk or not self.status_runway_a or not self.status_runway_b:
-            print("[GUI] 일부 상태 라벨을 찾지 못함 - 전체 QLabel 검색 시작")
-            all_labels = self.findChildren(QLabel)
-            print(f"[GUI] 전체 QLabel 위젯: {len(all_labels)}개")
-            for i, widget in enumerate(all_labels):
-                object_name = widget.objectName()
-                if object_name:  # 이름이 있는 것만 출력
-                    print(f"[GUI]   {i}: '{object_name}'")
-                    # 상태 관련 라벨 자동 할당
-                    if 'bird' in object_name.lower() and not self.status_bird_risk:
-                        self.status_bird_risk = widget
-                        print(f"[GUI] ✅ 조류 위험도 라벨 자동 할당: {object_name}")
-                    elif 'runway_a' in object_name.lower() and not self.status_runway_a:
-                        self.status_runway_a = widget
-                        print(f"[GUI] ✅ 활주로 A 라벨 자동 할당: {object_name}")
-                    elif 'runway_b' in object_name.lower() and not self.status_runway_b:
-                        self.status_runway_b = widget
-                        print(f"[GUI] ✅ 활주로 B 라벨 자동 할당: {object_name}")
-        
-        # 진행률 및 슬라이더
-        self.progress_voice = self.findChild(QProgressBar, "progressBar_voice")
-        self.progress_mic_level = self.findChild(QProgressBar, "progress_mic_level")
-        self.slider_tts_volume = self.findChild(QSlider, "slider_tts_volume")
-        
-        # MIC LEVEL 프로그레스바 디버깅
-        print(f"[GUI] 프로그레스바 찾기 결과:")
-        print(f"   progress_voice: {self.progress_voice is not None}")
-        print(f"   progress_mic_level: {self.progress_mic_level is not None}")
-        
-        # MIC LEVEL 프로그레스바 강제 찾기
-        if not self.progress_mic_level:
-            print("[GUI] WARN progress_mic_level 못찾음 - 전체 검색 시작")
-            all_progress = self.findChildren(QProgressBar)
-            print(f"[GUI] 총 {len(all_progress)}개 프로그레스바 발견:")
-            for i, widget in enumerate(all_progress):
-                name = widget.objectName() if hasattr(widget, 'objectName') else "이름없음"
-                print(f"   [{i}] {name}")
-                # mic 관련 이름 찾기
-                if 'mic' in name.lower() or 'level' in name.lower():
-                    print(f"   → MIC 관련 프로그레스바 발견: {name}")
-                    self.progress_mic_level = widget
-                    break
-            else:
-                # 여전히 못찾으면 첫번째 것 사용
-                if all_progress:
-                    print(f"   → 첫번째 프로그레스바를 MIC LEVEL로 사용: {all_progress[0].objectName()}")
-                    self.progress_mic_level = all_progress[0]
-                else:
-                    print("[GUI] ERROR 프로그레스바를 전혀 찾을 수 없음!")
-        else:
-            print(f"[GUI] OK progress_mic_level 찾음: {self.progress_mic_level.objectName()}")
-        
-        # NEW 모든 프로그레스바와 슬라이더를 0으로 초기화 (안전하게)
-        if self.progress_voice:
-            self.progress_voice.setValue(0)
-        if self.progress_mic_level:
-            self.progress_mic_level.setValue(0)
-        if self.slider_tts_volume:
-            # NEW TTS 볼륨은 50%로 초기화 (0이면 소리 안남!)
-            self.slider_tts_volume.setValue(50)
-            
-            # NEW 슬라이더 정밀도 향상
-            self.slider_tts_volume.setTickPosition(QSlider.TickPosition.TicksBelow)
-            self.slider_tts_volume.setTickInterval(10)  # 10% 단위로 눈금
-            self.slider_tts_volume.setSingleStep(1)     # 키보드 화살표로 1% 단위 조절
-            self.slider_tts_volume.setPageStep(5)       # 마우스 클릭으로 5% 단위 조절
-            
-            # OK 슬라이더 스타일링 추가 (채워진 부분과 빈 부분 색상 구분)
-            self.slider_tts_volume.setStyleSheet("""
-                QSlider::groove:vertical {
-                    background: transparent;
-                    width: 12px;
-                    border-radius: 6px;
-                    border: 2px solid #404040;
-                }
-                QSlider::handle:vertical {
-                    background: #00ff00;
-                    border: 2px solid #008800;
-                    width: 20px;
-                    height: 20px;
-                    border-radius: 10px;
-                    margin: 0 -6px;
-                }
-                QSlider::add-page:vertical {
-                    background: #00ff00;
-                    border-radius: 6px;
-                }
-                QSlider::sub-page:vertical {
-                    background: transparent;
-                    border-radius: 6px;
-                }
-                QSlider::tick-marks:vertical {
-                    spacing: 10px;
-                    width: 2px;
-                    color: #808080;
-                }
-            """)
-        # TTS 볼륨 라벨은 UI에서 제거됨
-        
-        print(f"[GUI] 위젯 할당 결과:")
-        print(f"  - UTC 시간 라벨: {self.label_utc_time is not None}")
-        print(f"  - LOCAL 시간 라벨: {self.label_local_time is not None}")
-        print(f"  - START MARSHALL 버튼: {self.btn_marshall is not None}")
-        print(f"  - VOICE INPUT 버튼: {self.btn_voice is not None}")
-        
-        # NEW 초기 시간 설정 (안전하게)
         try:
-            self.update_time()  # 즉시 시간 업데이트
+            # 현재 디렉토리에서 .ui 파일 로드
+            ui_file = os.path.join(os.path.dirname(__file__), "redwing_gui.ui")
+            if not os.path.exists(ui_file):
+                raise FileNotFoundError(f"UI 파일을 찾을 수 없습니다: {ui_file}")
+            
+            # .ui 파일 로드
+            uic.loadUi(ui_file, self)
+            print(f"✅ UI 파일 로드 완료: {ui_file}")
+            
+            # UI 요소들 찾기
+            self.voice_button = self.findChild(QPushButton, "voice_button")
+            self.marshall_button = self.findChild(QPushButton, "marshall_button")
+            self.label_main_status = self.findChild(QLabel, "main_status")
+            self.label_utc_time = self.findChild(QLabel, "time_utc")
+            self.label_local_time = self.findChild(QLabel, "time_local")
+            self.label_runway_alpha = self.findChild(QLabel, "status_runway_a")
+            self.label_runway_bravo = self.findChild(QLabel, "status_runway_b")
+            self.label_bird_risk = self.findChild(QLabel, "status_bird_risk")
+            self.progress_voice = self.findChild(QProgressBar, "progressBar_voice")
+            
+            # UI 요소 확인
+            print(f"[GUI] UI 요소 확인:")
+            print(f"   voice_button: {self.voice_button is not None}")
+            print(f"   marshall_button: {self.marshall_button is not None}")
+            print(f"   label_main_status: {self.label_main_status is not None}")
+            print(f"   progress_voice: {self.progress_voice is not None}")
+            
+            # 기본 상태 설정
+            if self.progress_voice:
+                self.progress_voice.setValue(0)
+            
         except Exception as e:
-            print(f"[GUI] WARN 시간 업데이트 실패: {e}")
-        
-        print(f"OK UI 파일 로드 완료: {ui_file}")
-        print("OK 모든 프로그레스바/슬라이더를 0으로 초기화")
+            print(f"❌ UI 로드 실패: {e}")
+            raise
     
     def connect_signals(self):
         """시그널과 슬롯 연결"""
         # 버튼 연결
-        if self.btn_voice:
-            self.btn_voice.clicked.connect(self.start_voice_input)
-        # 🆕 START MARSHALL 버튼 연결
-        if self.btn_marshall:
-            self.btn_marshall.clicked.connect(self.toggle_marshaling)
+        if self.voice_button:
+            self.voice_button.clicked.connect(self.start_voice_input)
+        # 🆕 START MARSHAL 버튼 연결
+        if self.marshall_button:
+            self.marshall_button.clicked.connect(self.toggle_marshaling)
         
-        # 슬라이더 연결
-        if self.slider_tts_volume:
-            self.slider_tts_volume.valueChanged.connect(self.update_tts_volume)
+        # 시그널 연결 완료
         
         # 🔧 시그널 연결 (스레드 안전성)
         self.bird_risk_changed_signal.connect(self.update_bird_risk_display)
         self.runway_alpha_changed_signal.connect(self.update_runway_alpha_display)
         self.runway_bravo_changed_signal.connect(self.update_runway_bravo_display)
         self.event_tts_signal.connect(self.update_tts_display_with_event)
+        self.reset_status_signal.connect(self.reset_status)
     
     def init_controller(self):
         """컨트롤러 초기화"""
@@ -394,9 +365,6 @@ class RedWing(QMainWindow):
             self.update_system_status_display()
             if hasattr(self, 'statusbar') and self.statusbar:
                 self.statusbar.showMessage("System ready")
-            
-            # OK TTS 속도를 빠르게 설정
-            self.set_tts_speed_fast()
             
         except Exception as e:
             if hasattr(self, 'statusbar') and self.statusbar:
@@ -497,13 +465,9 @@ class RedWing(QMainWindow):
                 server_port=self.SERVER_PORT,
                 use_simulator=False
             )
-            # 간단한 연결 테스트
-            if hasattr(client, 'tcp_client') and client.tcp_client.connect():
-                print(f"[GUI] ✅ 서버 클라이언트 연결 성공: {self.SERVER_HOST}:{self.SERVER_PORT}")
-                client.tcp_client.disconnect()  # 테스트 연결 해제
-                return client
-            else:
-                print(f"[GUI] ❌ 서버 클라이언트 연결 실패: {self.SERVER_HOST}:{self.SERVER_PORT}")
+            # 연결 테스트 제거 - 실제 사용시에 연결하도록 변경
+            print(f"[GUI] ✅ 서버 클라이언트 생성 완료: {self.SERVER_HOST}:{self.SERVER_PORT}")
+            return client
         except Exception as e:
             print(f"[GUI] ❌ 서버 클라이언트 생성 오류 ({self.SERVER_HOST}): {e}")
         
@@ -515,13 +479,9 @@ class RedWing(QMainWindow):
                 server_port=self.SERVER_PORT,
                 use_simulator=False
             )
-            # 간단한 연결 테스트
-            if hasattr(client, 'tcp_client') and client.tcp_client.connect():
-                print(f"[GUI] ✅ 서버 클라이언트 localhost 연결 성공: {self.FALLBACK_HOST}:{self.SERVER_PORT}")
-                client.tcp_client.disconnect()  # 테스트 연결 해제
-                return client
-            else:
-                print(f"[GUI] ❌ 서버 클라이언트 localhost 연결 실패: {self.FALLBACK_HOST}:{self.SERVER_PORT}")
+            # 연결 테스트 제거 - 실제 사용시에 연결하도록 변경
+            print(f"[GUI] ✅ 서버 클라이언트 localhost 생성 완료: {self.FALLBACK_HOST}:{self.SERVER_PORT}")
+            return client
         except Exception as e:
             print(f"[GUI] ❌ 서버 클라이언트 localhost 생성 오류: {e}")
         
@@ -616,16 +576,16 @@ class RedWing(QMainWindow):
             
             print("[GUI] 🔍 헤드셋/USB 마이크 검색 중...")
             
-            # 🎤 USB 마이크를 최우선으로 사용 (충돌 방지 기능 적용됨)
+            # 🎤 pipewire 우선 사용 (ABKO 헤드셋이 기본 마이크로 설정됨)
             priority_groups = [
-                (['usb', 'headset'], "USB 헤드셋"),  # USB 헤드셋 최우선
-                (['usb', 'mic'], "USB 마이크"),      # USB 마이크 (ABKO N550)
-                (['n550', 'abko'], "ABKO N550 마이크"), # 특정 USB 마이크
-                (['usb'], "USB 장치"),               # 일반 USB 장치
-                (['pipewire'], "PipeWire 오디오"),   # PipeWire (충돌 시 대안)
-                (['headset'], "헤드셋"),             # 헤드셋
-                (['alc233'], "내장 마이크"),         # 내장 마이크
-                (['hw:'], "ALSA 하드웨어 장치"),     # ALSA 하드웨어 장치
+                (['pipewire'], "PipeWire 오디오 (ABKO N550 헤드셋 사용)"), # pipewire 최우선 (ABKO 헤드셋 포함)
+                (['n550', 'abko'], "ABKO N550 헤드셋 마이크"), # ABKO 헤드셋 직접 접근
+                (['usb', 'headset'], "USB 헤드셋"),     # USB 헤드셋
+                (['usb', 'mic'], "USB 마이크"),         # USB 마이크
+                (['usb'], "USB 장치"),                  # 일반 USB 장치
+                (['headset'], "헤드셋"),                # 헤드셋
+                (['alc233'], "내장 마이크"),            # 내장 마이크
+                (['hw:'], "ALSA 하드웨어 장치"),        # ALSA 하드웨어 장치
             ]
             
             for keywords, description in priority_groups:
@@ -637,6 +597,25 @@ class RedWing(QMainWindow):
                         if not any(exclude in name_lower for exclude in exclude_keywords):
                             selected_device_index = device['index']
                             selected_device_name = device['name']
+                            
+                            # pipewire 선택 시 실제 기본 마이크 확인
+                            if 'pipewire' in keywords:
+                                try:
+                                    import subprocess
+                                    result = subprocess.run(['wpctl', 'inspect', '@DEFAULT_SOURCE@'], 
+                                                          capture_output=True, text=True, timeout=2)
+                                    if result.returncode == 0 and 'ABKO N550' in result.stdout:
+                                        description = "PipeWire 오디오 → ABKO N550 헤드셋 확인됨 ✅"
+                                    elif result.returncode == 0:
+                                        # 다른 마이크가 기본값인 경우 표시
+                                        for line in result.stdout.split('\n'):
+                                            if 'node.nick' in line:
+                                                mic_name = line.split('"')[1] if '"' in line else "Unknown"
+                                                description = f"PipeWire 오디오 → {mic_name} 사용 중"
+                                                break
+                                except Exception:
+                                    pass  # wpctl 실패해도 계속 진행
+                            
                             print(f"[GUI] ✅ 마이크 선택: {selected_device_name} (인덱스: {selected_device_index}) - {description}")
                             break
                 
@@ -703,8 +682,8 @@ class RedWing(QMainWindow):
             result = event_data.get("result", "UNKNOWN")
             # 🔧 스레드 안전한 GUI 업데이트 (시그널 사용)
             self.bird_risk_changed_signal.emit(result)
-            # 🔧 직접 호출 (QTimer 제거)
-            self.play_event_tts_notification(result, "bird_risk")
+            # 🔧 스레드 안전한 이벤트 TTS 호출
+            self.thread_safe_event_tts_update(self.get_standard_event_message(result, "bird_risk"))
     
     def on_runway_alpha_changed(self, event_data: dict):
         """활주로 알파 상태 변화 이벤트 처리"""
@@ -727,8 +706,8 @@ class RedWing(QMainWindow):
             result = event_data.get("result", "UNKNOWN")
             # 🔧 스레드 안전한 GUI 업데이트 (시그널 사용)
             self.runway_alpha_changed_signal.emit(result)
-            # 🔧 직접 호출 (QTimer 제거)
-            self.play_event_tts_notification(result, "runway_alpha")
+            # 🔧 스레드 안전한 이벤트 TTS 호출
+            self.thread_safe_event_tts_update(self.get_standard_event_message(result, "runway_alpha"))
     
     def on_runway_bravo_changed(self, event_data: dict):
         """활주로 브라보 상태 변화 이벤트 처리"""
@@ -751,8 +730,8 @@ class RedWing(QMainWindow):
             result = event_data.get("result", "UNKNOWN")
             # 🔧 스레드 안전한 GUI 업데이트 (시그널 사용)
             self.runway_bravo_changed_signal.emit(result)
-            # 🔧 직접 호출 (QTimer 제거)
-            self.play_event_tts_notification(result, "runway_bravo")
+            # 🔧 스레드 안전한 이벤트 TTS 호출
+            self.thread_safe_event_tts_update(self.get_standard_event_message(result, "runway_bravo"))
     
     def play_event_tts_notification(self, result: str, event_type: str):
         """
@@ -1004,265 +983,6 @@ class RedWing(QMainWindow):
         self.time_timer = QTimer()
         self.time_timer.timeout.connect(self.update_time)
         self.time_timer.start(1000)  # 1초마다
-        
-        # 마이크 레벨 업데이트 타이머 - 실제 마이크 입력 반영
-        self.mic_timer = QTimer()
-        self.mic_timer.timeout.connect(self.update_mic_level)
-        self.mic_timer.start(50)  # 50ms마다 (더 빠른 업데이트)
-        
-        # NEW 실시간 마이크 레벨 모니터링 초기화
-        self.init_mic_monitoring()
-    
-    def init_mic_monitoring(self):
-        """실시간 마이크 레벨 모니터링 초기화 - 선택된 마이크 사용"""
-        try:
-            import pyaudio
-            import numpy as np
-            import threading
-            
-            print("[GUI] 마이크 모니터링 초기화 시작...")
-            
-            # 선택된 마이크 디바이스 사용
-            selected_mic_index = getattr(self, 'selected_mic_index', None)
-            selected_mic_name = getattr(self, 'selected_mic_name', '기본 마이크')
-            
-            print(f"[GUI] 🎤 모니터링 마이크: {selected_mic_name} (인덱스: {selected_mic_index})")
-            
-            # PyAudio 설정 - 선택된 마이크 사용
-            self.mic_audio = pyaudio.PyAudio()
-            self.mic_chunk_size = 1024
-            self.mic_sample_rate = 44100
-            self.mic_format = pyaudio.paInt16
-            self.mic_channels = 1
-            self.mic_device_index = selected_mic_index  # 🔧 선택된 마이크 인덱스 사용
-            
-            # 실시간 레벨 저장용 변수
-            self.current_mic_level = 0
-            self.mic_monitoring_active = True
-            
-            # 마이크 모니터링 스레드 시작
-            self.mic_monitor_thread = threading.Thread(target=self._monitor_mic_level_simple, daemon=True)
-            self.mic_monitor_thread.start()
-            
-            print(f"[GUI] ✅ 마이크 레벨 모니터링 시작: {selected_mic_name}")
-            
-        except Exception as e:
-            print(f"[GUI] ❌ 마이크 모니터링 초기화 실패: {e}")
-            self.mic_audio = None
-            self.current_mic_level = 0
-    
-    def _monitor_mic_level_simple(self):
-        """간단한 마이크 레벨 모니터링 (PyAudio 직접 사용) - 녹음 중 일시 중지 기능 추가"""
-        try:
-            import numpy as np
-            import time
-            
-            stream = None
-            loop_counter = 0
-            last_debug_time = time.time()
-            
-            print("[GUI] DEBUG 마이크 모니터링 스레드 시작됨")
-            print(f"[GUI] DEBUG mic_monitoring_active = {self.mic_monitoring_active}")
-            print(f"[GUI] DEBUG mic_audio = {self.mic_audio}")
-            
-            while self.mic_monitoring_active:
-                try:
-                    loop_counter += 1
-                    current_time = time.time()
-                    
-                    # 30초마다 상태 리포트
-                    if current_time - last_debug_time > 30.0:
-                        print(f"[GUI] 마이크 모니터링 활성: level={self.current_mic_level}%")
-                        last_debug_time = current_time
-                    
-                    # 🔧 녹음 중에는 마이크 모니터링 일시 중지 (디바이스 충돌 방지)
-                    if getattr(self, 'is_recording', False):
-                        if stream:
-                            try:
-                                stream.stop_stream()
-                                stream.close()
-                                print("[GUI] 🔴 녹음 중 - 마이크 모니터링 일시 중지")
-                            except:
-                                pass
-                            stream = None
-                        
-                        self.current_mic_level = 0  # 녹음 중에는 레벨 0으로 표시
-                        time.sleep(0.1)
-                        continue
-                    
-                    # 스트림이 없으면 새로 생성
-                    if not stream:
-                        try:
-                            print(f"[GUI] DEBUG 마이크 스트림 생성 시도...")
-                            print(f"   format={self.mic_format}, channels={self.mic_channels}")
-                            print(f"   rate={self.mic_sample_rate}, chunk={self.mic_chunk_size}")
-                            
-                            stream = self.mic_audio.open(
-                                format=self.mic_format,
-                                channels=self.mic_channels,
-                                rate=self.mic_sample_rate,
-                                input=True,
-                                input_device_index=self.mic_device_index,  # 🔧 선택된 마이크 사용
-                                frames_per_buffer=self.mic_chunk_size
-                            )
-                            print("[GUI] DEBUG 마이크 스트림 생성 성공!")
-                        except Exception as stream_error:
-                            print(f"[GUI] FAIL 마이크 스트림 생성 실패: {stream_error}")
-                            print(f"   에러 타입: {type(stream_error)}")
-                            time.sleep(1.0)
-                            continue
-                    
-                    # 오디오 데이터 읽기
-                    data = stream.read(self.mic_chunk_size, exception_on_overflow=False)
-                    
-                    if loop_counter <= 3:
-                        print(f"[GUI] DEBUG 오디오 데이터 읽기 성공: {len(data)} bytes")
-                    
-                    # numpy 배열로 변환
-                    audio_array = np.frombuffer(data, dtype=np.int16)
-                    
-                    if loop_counter <= 3:
-                        print(f"[GUI] DEBUG numpy 변환: shape={audio_array.shape}, max={np.max(np.abs(audio_array))}")
-                    
-                    # 간단한 RMS 레벨 계산
-                    rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
-                    
-                    # 🔧 TTS 재생 중에는 마이크 레벨을 0으로 표시 (피드백 방지)
-                    is_tts_playing = False
-                    if hasattr(self, 'controller') and self.controller and hasattr(self.controller, 'tts_engine'):
-                        if hasattr(self.controller.tts_engine, 'is_speaking'):
-                            is_tts_playing = self.controller.tts_engine.is_speaking()
-                    
-                    if is_tts_playing:
-                        normalized_level = 0  # TTS 재생 중에는 마이크 레벨 0으로 표시
-                    else:
-                        # 🔧 MIC LEVEL 민감도 조정 (더욱 덜 민감하게)
-                        NOISE_THRESHOLD = 800  # 노이즈 임계값 더 높임 (300→800)
-                        if rms > NOISE_THRESHOLD:
-                            # 임계값 이상의 신호만 처리 (더 큰 분모로 덜 민감하게)
-                            normalized_level = min(100, int((rms - NOISE_THRESHOLD) / 50))
-                            # 증폭 계수 더 감소 (1.5→1.0)
-                            normalized_level = min(100, int(normalized_level * 1.0))
-                        else:
-                            normalized_level = 0  # 노이즈 수준은 완전히 0
-                    
-                    # 현재 레벨 업데이트
-                    old_level = getattr(self, 'current_mic_level', -1)
-                    self.current_mic_level = int(normalized_level)
-                    
-                    # 큰 변화가 있을 때만 로그 출력 (10% 이상)
-                    if loop_counter <= 3 or abs(self.current_mic_level - old_level) > 15:
-                        print(f"[GUI] 마이크 레벨: {self.current_mic_level}% (RMS: {rms:.0f})")
-                    
-                    # 처리 속도 조절
-                    time.sleep(0.05)  # 50ms 대기
-                    
-                except Exception as e:
-                    print(f"[GUI] FAIL 마이크 데이터 처리 오류: {e}")
-                    print(f"   에러 타입: {type(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    
-                    if stream:
-                        try:
-                            stream.stop_stream()
-                            stream.close()
-                        except:
-                            pass
-                        stream = None
-                    time.sleep(0.5)
-                    continue
-            
-            # 정리
-            print("[GUI] DEBUG 마이크 모니터링 루프 종료")
-            if stream:
-                try:
-                    stream.stop_stream()
-                    stream.close()
-                    print("[GUI] DEBUG 마이크 스트림 정리 완료")
-                except:
-                    pass
-            
-        except Exception as e:
-            print(f"[GUI] FAIL 마이크 레벨 모니터링 전체 오류: {e}")
-            import traceback
-            traceback.print_exc()
-            self.current_mic_level = 0
-    
-    def _monitor_mic_level(self):
-        """NEW 실시간 마이크 레벨 모니터링 (백그라운드 스레드)"""
-        try:
-            import pyaudio
-            import numpy as np
-            import time
-            
-            stream = None
-            
-            while self.mic_monitoring_active:
-                try:
-                    # 일시정지 기능 제거 - 항상 모니터링 활성화
-                    
-                    # 스트림이 없으면 새로 생성
-                    if not stream:
-                        try:
-                            stream = self.mic_monitor.audio.open(
-                                format=self.mic_monitor.format,
-                                channels=self.mic_monitor.channels,
-                                rate=self.mic_monitor.sample_rate,
-                                input=True,
-                                input_device_index=self.mic_monitor.input_device_index,
-                                frames_per_buffer=self.mic_monitor.chunk_size
-                            )
-                        except Exception as stream_error:
-                            # 스트림 생성 실패 시 1초 대기 후 재시도 (로그 제거)
-                            time.sleep(1.0)
-                            continue
-                    
-                    # 오디오 데이터 읽기
-                    data = stream.read(self.mic_monitor.chunk_size, exception_on_overflow=False)
-                    
-                    # numpy 배열로 변환
-                    audio_array = np.frombuffer(data, dtype=np.int16)
-                    
-                    # 간단하고 직관적인 RMS 레벨 계산
-                    rms = np.sqrt(np.mean(audio_array.astype(np.float32) ** 2))
-                    
-                    # 간단한 0-100 범위 정규화 (더 민감하게)
-                    if rms > 0:
-                        # 선형 스케일로 변환 (더 직관적)
-                        normalized_level = min(100, int(rms / 327.67))  # 32767 / 100
-                        # 추가 증폭 (마이크 입력이 작을 때 더 잘 보이도록)
-                        normalized_level = min(100, normalized_level * 3)
-                    else:
-                        normalized_level = 0
-                    
-                    # 현재 레벨 업데이트
-                    self.current_mic_level = int(normalized_level)
-                    
-                except Exception as e:
-                    # 스트림 오류 시 잠시 대기 (로그 제거)
-                    if stream:
-                        try:
-                            stream.stop_stream()
-                            stream.close()
-                        except:
-                            pass
-                        stream = None
-                    time.sleep(0.5)
-                    continue
-            
-            # 스트림 정리
-            if stream:
-                try:
-                    stream.stop_stream()
-                    stream.close()
-                except:
-                    pass
-            
-        except Exception as e:
-            # 전체 오류 시에만 로그 출력
-            print(f"[GUI] 마이크 레벨 모니터링 전체 오류: {e}")
-            self.current_mic_level = 0
     
     def update_time(self):
         """시간 업데이트"""
@@ -1278,164 +998,9 @@ class RedWing(QMainWindow):
             local_time_str = f"LOCAL: {now.strftime('%H:%M:%S')}"
             self.label_local_time.setText(local_time_str)
     
-    def update_mic_level(self):
-        """마이크 레벨 업데이트 - 실시간 마이크 입력 반영 (강화된 디버깅)"""
-        if not hasattr(self, '_mic_gui_counter'):
-            self._mic_gui_counter = 0
-        self._mic_gui_counter += 1
-        
-        # 디버깅 로그 정리 완료
-        
-        if self.progress_mic_level:
-            if hasattr(self, 'mic_audio') and self.mic_audio:
-                # 실시간 마이크 레벨 사용
-                if hasattr(self, 'current_mic_level'):
-                    display_level = self.current_mic_level
-                    
-                    # 🔧 녹음 중에도 진짜 입력이 없으면 0으로 표시 (부스트 제거)
-                    # if self.is_recording:
-                    #     display_level = min(100, display_level + 10)
-                    
-                    old_value = self.progress_mic_level.value()
-                    self.progress_mic_level.setValue(display_level)
-                    
-                    # 로그 정리 완료
-                else:
-                    # current_mic_level이 없으면 0
-                    self.progress_mic_level.setValue(0)
-                    pass
-            else:
-                # 마이크 모니터링이 없는 경우 fallback
-                if self.is_recording:
-                    import random
-                    level = random.randint(30, 90)
-                    self.progress_mic_level.setValue(level)
-                    if self._mic_gui_counter <= 10:
-                        print(f"[GUI] DEBUG 마이크 없음, 녹음 중 - 랜덤값: {level}")
-                else:
-                    self.progress_mic_level.setValue(0)
-                    if self._mic_gui_counter <= 10:
-                        print(f"[GUI] DEBUG 마이크 없음, 대기 중 - 0")
-        else:
-            if self._mic_gui_counter <= 10:
-                print(f"[GUI] FAIL progress_mic_level 위젯이 없음!")
+
     
-    def update_tts_volume(self, value):
-        """TTS 볼륨 업데이트 - 정밀도 향상"""
-        # NEW 실용적인 음소거 처리 (0-5 범위에서 음소거, 사용자 시스템 테스트 기반)
-        is_muted = value <= 5
-        
-        # NEW 슬라이더 색상 업데이트 (음소거 상태 시각적 표현)
-        if self.slider_tts_volume:
-            if is_muted:
-                # 음소거 상태 - 빨간색
-                self.slider_tts_volume.setStyleSheet("""
-                    QSlider::groove:vertical {
-                        background: transparent;
-                        width: 12px;
-                        border-radius: 6px;
-                        border: 2px solid #404040;
-                    }
-                    QSlider::handle:vertical {
-                        background: #ff4444;
-                        border: 2px solid #cc0000;
-                        width: 20px;
-                        height: 20px;
-                        border-radius: 10px;
-                        margin: 0 -6px;
-                    }
-                    QSlider::add-page:vertical {
-                        background: #ff4444;
-                        border-radius: 6px;
-                    }
-                    QSlider::sub-page:vertical {
-                        background: transparent;
-                        border-radius: 6px;
-                    }
-                """)
-            else:
-                # 정상 상태 - 녹색
-                self.slider_tts_volume.setStyleSheet("""
-                    QSlider::groove:vertical {
-                        background: transparent;
-                        width: 12px;
-                        border-radius: 6px;
-                        border: 2px solid #404040;
-                    }
-                    QSlider::handle:vertical {
-                        background: #00ff00;
-                        border: 2px solid #008800;
-                        width: 20px;
-                        height: 20px;
-                        border-radius: 10px;
-                        margin: 0 -6px;
-                    }
-                    QSlider::add-page:vertical {
-                        background: #00ff00;
-                        border-radius: 6px;
-                    }
-                    QSlider::sub-page:vertical {
-                        background: transparent;
-                        border-radius: 6px;
-                    }
-                """)
-        
-        # OK 실제 TTS 엔진 볼륨 조절 - 정밀도 향상
-        if self.controller and hasattr(self.controller, 'tts_engine'):
-            try:
-                # NEW 정밀한 볼륨 계산 (0-2 값은 완전 음소거)
-                if is_muted:
-                    volume_normalized = 0.0
-                    effective_volume = 0
-                else:
-                    # 6-100 범위를 0.1-1.0으로 매핑 (실제 들리는 범위로 조절)
-                    volume_normalized = max(0.1, value / 100.0)
-                    effective_volume = value
-                
-                # UnifiedTTSEngine의 볼륨 설정
-                if hasattr(self.controller.tts_engine, 'set_volume'):
-                    self.controller.tts_engine.set_volume(volume_normalized)
-                    if is_muted:
-                        print(f"[GUI] MUTE TTS 음소거 설정 (슬라이더 값: {value})")
-                    else:
-                        print(f"[GUI] OK TTS 볼륨 설정: {effective_volume}% → {volume_normalized:.3f}")
-                
-                # pyttsx3 엔진의 볼륨 설정 (fallback 엔진용)
-                elif hasattr(self.controller.tts_engine, 'pyttsx3_engine'):
-                    if self.controller.tts_engine.pyttsx3_engine:
-                        self.controller.tts_engine.pyttsx3_engine.setProperty('volume', volume_normalized)
-                        if is_muted:
-                            print(f"[GUI] MUTE pyttsx3 TTS 음소거 설정 (슬라이더 값: {value})")
-                        else:
-                            print(f"[GUI] OK pyttsx3 TTS 볼륨 설정: {effective_volume}% → {volume_normalized:.3f}")
-                
-                else:
-                    print(f"[GUI] WARN TTS 엔진에서 볼륨 조절을 지원하지 않습니다")
-                    
-            except Exception as e:
-                print(f"[GUI] FAIL TTS 볼륨 설정 오류: {e}")
-        else:
-            print(f"[GUI] WARN TTS 컨트롤러가 없어서 볼륨 조절할 수 없습니다")
-    
-    def set_tts_speed_fast(self):
-        """TTS 속도를 조금 빠르게 설정"""
-        if self.controller and hasattr(self.controller, 'tts_engine'):
-            try:
-                # 기본 속도보다 20% 빠르게 (150 → 180)
-                fast_speed = 180
-                
-                # UnifiedTTSEngine의 속도 설정
-                if hasattr(self.controller.tts_engine, 'set_rate'):
-                    self.controller.tts_engine.set_rate(fast_speed)
-                    print(f"[GUI] OK TTS 속도 설정: {fast_speed} WPM (빠름)")
-                
-                else:
-                    print(f"[GUI] WARN TTS 엔진에서 속도 조절을 지원하지 않습니다")
-                    
-            except Exception as e:
-                print(f"[GUI] FAIL TTS 속도 설정 오류: {e}")
-        else:
-            print(f"[GUI] WARN TTS 컨트롤러가 없어서 속도 조절할 수 없습니다")
+
     
     def update_system_status_display(self):
         """시스템 상태 디스플레이 업데이트 - 메인 상태는 녹음 중일 때 건드리지 않음"""
@@ -1459,24 +1024,17 @@ class RedWing(QMainWindow):
         # 🔴 녹음 시작 - 마이크 모니터링이 일시 중지됩니다
         print("[GUI] 🔴 녹음 시작 - 마이크 모니터링 일시 중지")
         self.is_recording = True
-        if self.btn_voice:
-            self.btn_voice.setText("RECORDING...")
-            self.btn_voice.setEnabled(False)
+        if self.voice_button:
+            self.voice_button.setText("RECORDING...")
+            self.voice_button.setEnabled(False)
         if self.label_main_status:
             self.label_main_status.setText("RECORDING")
             self.label_main_status.setStyleSheet("background-color: #331100; color: #ffaa00;")
         
         # 진행률 표시
         if self.progress_voice:
-            self.progress_voice.setVisible(True)
             self.progress_voice.setRange(0, 50)  # 5초 * 10 (100ms 단위)
             self.progress_voice.setValue(0)
-        
-        # 진행률 업데이트 타이머
-        self.recording_timer = QTimer()
-        self.recording_timer.timeout.connect(self.update_recording_progress)
-        self.recording_timer.start(100)  # 100ms마다
-        self.recording_progress = 0
         
         # 워커 스레드 시작
         self.voice_worker = VoiceWorkerThread(self.controller)
@@ -1484,19 +1042,16 @@ class RedWing(QMainWindow):
         self.voice_worker.voice_error.connect(self.on_voice_error)
         self.voice_worker.stt_result.connect(self.on_stt_result)
         self.voice_worker.tts_text_ready.connect(self.on_tts_text_ready)
+        self.voice_worker.recording_progress.connect(self.on_recording_progress)
         self.voice_worker.start()
         
         if hasattr(self, 'statusbar') and self.statusbar:
             self.statusbar.showMessage("Voice input in progress... Please speak for 5 seconds")
     
-    def update_recording_progress(self):
-        """녹음 진행률 업데이트"""
-        self.recording_progress += 1
+    def on_recording_progress(self, progress: int):
+        """실제 녹음 진행률 업데이트 (VoiceWorkerThread에서 전달)"""
         if self.progress_voice:
-            self.progress_voice.setValue(self.recording_progress)
-        
-        if self.recording_progress >= 50:  # 5초 완료
-            self.recording_timer.stop()
+            self.progress_voice.setValue(progress)
     
     def on_stt_result(self, text: str, confidence: float):
         """STT 결과 처리"""
@@ -1541,20 +1096,17 @@ class RedWing(QMainWindow):
         
         print(f"[GUI] on_voice_completed 종료")
         
-        # 🟢 녹음 완료 - 마이크 모니터링 재개
-        print("[GUI] 🟢 녹음 완료 - 마이크 모니터링 재개")
+        # 🟢 녹음 완료 - 간단한 상태 변경만
+        print("[GUI] 🟢 녹음 완료")
         self.is_recording = False
-        if self.btn_voice:
-            self.btn_voice.setText("VOICE INPUT")
-            self.btn_voice.setEnabled(True)
+        if self.voice_button:
+            self.voice_button.setText("VOICE INPUT")
+            self.voice_button.setEnabled(True)
         if self.progress_voice:
             # NEW 프로그레스바를 숨기지 않고 0으로 리셋
             self.progress_voice.setValue(0)
         
-        if hasattr(self, 'recording_timer'):
-            self.recording_timer.stop()
-        
-        # 마이크 모니터링은 이미 항상 활성화되어 있음
+        # 진행률은 VoiceWorkerThread에서 실시간으로 관리됨
         
         # NEW 상태에 따른 적절한 처리
         status = result.get('status', 'UNKNOWN')
@@ -1572,7 +1124,7 @@ class RedWing(QMainWindow):
                 self.statusbar.showMessage(f"Processing completed: {result['request_code']}")
                 
             # 3초 후 READY 상태로 복귀
-            QTimer.singleShot(3000, self.reset_status)
+            threading.Timer(3.0, lambda: self.reset_status_signal.emit()).start()
             
         elif status == "FAILED" or status.value == "FAILED" if hasattr(status, 'value') else False:
             # 실제 실패만 ERROR로 표시
@@ -1583,7 +1135,7 @@ class RedWing(QMainWindow):
                 self.statusbar.showMessage(f"Processing failed: {result.get('error_message', 'Unknown error')}")
                 
             # 3초 후 READY 상태로 복귀
-            QTimer.singleShot(3000, self.reset_status)
+            threading.Timer(3.0, lambda: self.reset_status_signal.emit()).start()
             
         elif status == "PROCESSING" or status.value == "PROCESSING" if hasattr(status, 'value') else False:
             # 처리 중 상태는 그냥 무시 (이미 RECORDING 상태이므로)
@@ -1593,24 +1145,21 @@ class RedWing(QMainWindow):
             # PENDING이나 기타 상태는 로그만 출력
             print(f"[GUI] INFO 알 수 없는 상태: {status}")
             # READY 상태로 즉시 복귀
-            QTimer.singleShot(1000, self.reset_status)
+            threading.Timer(1.0, lambda: self.reset_status_signal.emit()).start()
     
     def on_voice_error(self, error: str):
         """음성 처리 오류"""
-        # 🟢 오류 발생 - 마이크 모니터링 재개
-        print("[GUI] 🟢 오류 발생 - 마이크 모니터링 재개")
+        # 🟢 오류 발생 - 간단한 상태 변경만
+        print("[GUI] 🟢 오류 발생")
         self.is_recording = False
-        if self.btn_voice:
-            self.btn_voice.setText("VOICE INPUT")
-            self.btn_voice.setEnabled(True)
+        if self.voice_button:
+            self.voice_button.setText("VOICE INPUT")
+            self.voice_button.setEnabled(True)
         if self.progress_voice:
             # NEW 프로그레스바를 숨기지 않고 0으로 리셋
             self.progress_voice.setValue(0)
         
-        if hasattr(self, 'recording_timer'):
-            self.recording_timer.stop()
-        
-        # 마이크 모니터링은 이미 항상 활성화되어 있음
+        # 진행률은 VoiceWorkerThread에서 실시간으로 관리됨
         
         if self.label_main_status:
             self.label_main_status.setText("ERROR")
@@ -1621,7 +1170,7 @@ class RedWing(QMainWindow):
         QMessageBox.warning(self, "Voice Processing Error", f"Voice processing encountered an error:\n{error}")
         
         # 3초 후 READY 상태로 복귀
-        QTimer.singleShot(3000, self.reset_status)
+        threading.Timer(3.0, lambda: self.reset_status_signal.emit()).start()
     
     def reset_status(self):
         """상태를 READY로 리셋"""
@@ -1885,9 +1434,9 @@ class RedWing(QMainWindow):
             self.marshaling_active = True
             
             # 버튼 상태 변경
-            if self.btn_marshall:
-                self.btn_marshall.setText("STOP MARSHALL")
-                self.btn_marshall.setStyleSheet("""
+            if self.marshall_button:
+                self.marshall_button.setText("STOP MARSHAL")
+                self.marshall_button.setStyleSheet("""
                     QPushButton {
                         background-color: #1a0000;
                         border: 3px solid #ff0000;
@@ -1907,9 +1456,9 @@ class RedWing(QMainWindow):
             # PDS 서버에 마샬링 시작 명령 전송
             self.send_marshaling_command("MARSHALING_START")
             
-            # TTS 알림
+            # TTS 알림 (스레드 안전)
             if self.controller and self.controller.tts_engine:
-                self.controller.tts_engine.speak("Marshaling recognition activated")
+                threading.Thread(target=lambda: self.controller.tts_engine.speak("Marshaling recognition activated"), daemon=True).start()
                 
         except Exception as e:
             print(f"[GUI] ❌ 마샬링 시작 오류: {e}")
@@ -1921,9 +1470,9 @@ class RedWing(QMainWindow):
             self.marshaling_active = False
             
             # 버튼 상태 변경 
-            if self.btn_marshall:
-                self.btn_marshall.setText("START MARSHALL")
-                self.btn_marshall.setStyleSheet("""
+            if self.marshall_button:
+                self.marshall_button.setText("START MARSHAL")
+                self.marshall_button.setStyleSheet("""
                     QPushButton {
                         background-color: #001a00;
                         border: 3px solid #00ff00;
@@ -1943,9 +1492,9 @@ class RedWing(QMainWindow):
             # PDS 서버에 마샬링 중지 명령 전송
             self.send_marshaling_command("MARSHALING_STOP")
             
-            # TTS 알림
+            # TTS 알림 (스레드 안전)  
             if self.controller and self.controller.tts_engine:
-                self.controller.tts_engine.speak("Marshaling recognition deactivated")
+                threading.Thread(target=lambda: self.controller.tts_engine.speak("Marshaling recognition deactivated"), daemon=True).start()
             
             # 메인 상태를 기본으로 복원
             if self.label_main_status:
@@ -1955,41 +1504,41 @@ class RedWing(QMainWindow):
             print(f"[GUI] ❌ 마샬링 중지 오류: {e}")
     
     def send_marshaling_command(self, command: str):
-        """PDS 서버에 마샬링 명령 전송 (포트 5301)"""
+        """GUI Server를 통해 PDS 서버에 마샬링 명령 전송"""
         try:
             import socket
             import json
             
-            # PDS 서버 주소 (포트 5301)
-            pds_host = self.SERVER_HOST
-            pds_port = 5301
+            # GUI Server 주소 (포트 8000)
+            gui_server_host = self.SERVER_HOST
+            gui_server_port = self.SERVER_PORT
             
-            # 명령 메시지 생성
+            # 명령 메시지 생성 (GUI Server 프로토콜에 맞게)
             command_message = {
                 "type": "command",
                 "command": command
             }
             
-            # TCP 소켓으로 전송
+            # TCP 소켓으로 GUI Server에 전송
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 sock.settimeout(3.0)  # 3초 타임아웃
-                sock.connect((pds_host, pds_port))
+                sock.connect((gui_server_host, gui_server_port))
                 message = json.dumps(command_message) + "\n"
                 sock.send(message.encode('utf-8'))
-                print(f"[GUI] 📤 PDS 명령 전송: {command} → {pds_host}:{pds_port}")
+                print(f"[GUI] 📤 GUI Server를 통해 마샬링 명령 전송: {command} → {gui_server_host}:{gui_server_port}")
                 
         except Exception as e:
-            print(f"[GUI] ❌ PDS 명령 전송 실패: {e}")
-            # 폴백: localhost로 시도
+            print(f"[GUI] ❌ GUI Server 마샬링 명령 전송 실패: {e}")
+            # 폴백: 127.0.0.1로 시도
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     sock.settimeout(3.0)
-                    sock.connect(("localhost", 5301))
+                    sock.connect((self.FALLBACK_HOST, self.SERVER_PORT))
                     message = json.dumps(command_message) + "\n"
                     sock.send(message.encode('utf-8'))
-                    print(f"[GUI] 📤 PDS 명령 전송 (localhost): {command}")
+                    print(f"[GUI] 📤 GUI Server 마샬링 명령 전송 (fallback): {command}")
             except Exception as e2:
-                print(f"[GUI] ❌ PDS 명령 전송 완전 실패: {e2}")
+                print(f"[GUI] ❌ GUI Server 마샬링 명령 전송 완전 실패: {e2}")
     
     def on_marshaling_gesture(self, event_data: dict):
         """마샬링 제스처 이벤트 처리"""
@@ -2011,9 +1560,10 @@ class RedWing(QMainWindow):
                 
                 message = gesture_messages.get(result, f"Unknown gesture: {result}")
                 
-                # TTS로 제스처 안내
+                # TTS로 제스처 안내 (스레드 안전)
                 if self.controller and self.controller.tts_engine:
-                    self.controller.tts_engine.speak(message)
+                    # 백그라운드 스레드에서 안전하게 TTS 호출
+                    threading.Thread(target=lambda: self.controller.tts_engine.speak(message), daemon=True).start()
                     
                 # 메인 상태 표시 업데이트
                 if self.label_main_status:
@@ -2039,31 +1589,14 @@ class RedWing(QMainWindow):
                 self.controller.shutdown()
                 print("[GUI] 컨트롤러 종료 완료")
             
-            # 마이크 모니터링 중지
+            # 🔧 마이크 모니터링 정리 (비활성화된 상태이므로 간단히 처리)
             if hasattr(self, 'mic_monitoring_active'):
                 self.mic_monitoring_active = False
-                print("[GUI] 마이크 모니터링 중지 요청")
-            
-            # 마이크 모니터링 스레드 종료 대기
-            if hasattr(self, 'mic_monitor_thread'):
-                self.mic_monitor_thread.join(timeout=1.0)
-                print("[GUI] 마이크 모니터링 스레드 종료")
-            
-            # 마이크 오디오 객체 정리
-            if hasattr(self, 'mic_audio') and self.mic_audio:
-                try:
-                    self.mic_audio.terminate()
-                    print("[GUI] 마이크 PyAudio 정리")
-                except:
-                    pass
+                print("[GUI] 마이크 모니터링 정리 완료 (이미 비활성화됨)")
             
             # 타이머 정리
             if hasattr(self, 'time_timer'):
                 self.time_timer.stop()
-            if hasattr(self, 'mic_timer'):
-                self.mic_timer.stop()
-            if hasattr(self, 'recording_timer'):
-                self.recording_timer.stop()
             if hasattr(self, 'server_retry_timer'):
                 self.server_retry_timer.stop()
             
@@ -2084,21 +1617,67 @@ def main():
     app.setApplicationVersion("1.0")
     app.setOrganizationName("dl-falcon")
     
+    # 애플리케이션 종료 시 Qt 객체들이 자동으로 정리되도록 설정
+    try:
+        app.setAttribute(Qt.ApplicationAttribute.AA_DisableWindowContextHelpButton)
+    except AttributeError:
+        # PyQt6에서는 다른 속성 이름을 사용
+        pass
+    
+    redwing = None
+    
     try:
         # RedWing 인터페이스 생성 및 표시
+        print("🎯 FALCON RedWing Interface 초기화 중...")
         redwing = RedWing()
         redwing.show()
         
         print("🎯 FALCON RedWing Interface 시작됨")
+        print("GUI가 표시되었습니다. 창을 닫으려면 X 버튼을 클릭하세요.")
         
         # 이벤트 루프 실행
-        sys.exit(app.exec())
+        exit_code = app.exec()
+        print(f"🎯 애플리케이션 정상 종료: exit_code={exit_code}")
+        return exit_code
+        
+    except KeyboardInterrupt:
+        print("\n🛑 사용자가 Ctrl+C로 종료 요청")
+        if redwing:
+            redwing.close()
+        return 0
         
     except Exception as e:
-        print(f"FAIL RedWing Interface 시작 오류: {e}")
+        print(f"❌ RedWing Interface 시작 오류: {e}")
         import traceback
         traceback.print_exc()
-        sys.exit(1)
+        
+        # 에러 메시지 박스 표시
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Icon.Critical)
+            msg.setWindowTitle("RedWing 시작 오류")
+            msg.setText(f"RedWing Interface를 시작할 수 없습니다:\n\n{str(e)}")
+            msg.setDetailedText(traceback.format_exc())
+            msg.exec()
+        except:
+            pass
+        
+        return 1
+    
+    finally:
+        # 정리 작업
+        try:
+            if redwing:
+                print("🧹 RedWing 인스턴스 정리 중...")
+                redwing.close()
+            print("🧹 Qt 애플리케이션 정리 중...")
+            app.quit()
+        except Exception as cleanup_error:
+            print(f"⚠️ 정리 중 오류: {cleanup_error}")
+        
+        print("✅ 애플리케이션 완전 종료")
 
 if __name__ == "__main__":
-    main() 
+    exit_code = main()
+    sys.exit(exit_code) 

@@ -14,7 +14,7 @@ class EventManager:
     시뮬레이터 모드에서는 자동 이벤트 생성 기능을 제공합니다.
     """
     
-    def __init__(self, server_host: str = "localhost", server_port: int = 5300, use_simulator: bool = True):
+    def __init__(self, server_host: str = "localhost", server_port: int = 8000, use_simulator: bool = True):
         """
         이벤트 매니저 초기화
         

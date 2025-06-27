@@ -12,7 +12,7 @@ class TCPClient:
     서버와의 TCP 통신을 담당하며, 명령어 전송/응답 처리와 이벤트 수신을 모두 처리합니다.
     """
     
-    def __init__(self, server_host: str = "localhost", server_port: int = 5300):
+    def __init__(self, server_host: str = "localhost", server_port: int = 8000):
         """
         TCP 클라이언트 초기화
         

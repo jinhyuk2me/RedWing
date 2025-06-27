@@ -229,15 +229,20 @@ class AudioIO:
                     name_lower = device_info['name'].lower()
                     score = 0
                     
-                    # pipewire는 최고 우선순위
-                    if 'pipewire' in name_lower:
+                    # USB 마이크 (ABKO N550) 최고 우선순위 - 헤드셋 마이크 우선
+                    if any(keyword in name_lower for keyword in ['abko', 'n550']):
+                        score += 120
+                        print(f"[AudioIO] 🎤 ABKO 헤드셋 마이크 발견: {device_info['name']} (점수: 120)")
+                    
+                    # 일반 USB 마이크 두 번째 우선순위
+                    elif 'usb' in name_lower and not any(builtin in name_lower for builtin in ['built-in', 'intel', 'hw:0']):
+                        score += 110
+                        print(f"[AudioIO] 🎤 USB 마이크 발견: {device_info['name']} (점수: 110)")
+                    
+                    # pipewire는 세 번째 우선순위로 변경
+                    elif 'pipewire' in name_lower:
                         score += 100
                         print(f"[AudioIO] 🎯 pipewire 디바이스 발견: {device_info['name']} (점수: 100)")
-                    
-                    # USB 마이크 (ABKO N550) 두 번째 우선순위
-                    elif any(keyword in name_lower for keyword in ['abko', 'n550', 'usb']):
-                        score += 80
-                        print(f"[AudioIO] 🎤 USB 마이크 발견: {device_info['name']} (점수: 80)")
                     
                     # 외장 디바이스 (hw:2 등)
                     elif 'hw:2' in name_lower or 'card 2' in name_lower:
@@ -356,24 +361,49 @@ class AudioIO:
         # 기존 스트림 정리
         self._close_existing_stream()
         
-        # PyAudio 재초기화로 디바이스 충돌 방지
-        try:
-            if hasattr(self, 'audio'):
-                self.audio.terminate()
-            self.audio = pyaudio.PyAudio()
-            print("[AudioIO] 🔄 PyAudio 재초기화 완료")
-        except Exception as e:
-            print(f"[AudioIO] ⚠️ PyAudio 재초기화 중 오류: {e}")
+        # PyAudio 객체 상태 확인 및 재초기화
+        need_reinit = False
         
-        # 표준 샘플 레이트 목록 (호환성 우선순위)
-        sample_rates = [44100, 48000, 16000, 22050]
+        if not hasattr(self, 'audio') or self.audio is None:
+            need_reinit = True
+        else:
+            # PyAudio 객체가 정상 작동하는지 테스트
+            try:
+                device_count = self.audio.get_device_count()
+                if device_count <= 0:
+                    need_reinit = True
+            except Exception as e:
+                print(f"[AudioIO] ⚠️ PyAudio 객체 상태 확인 실패: {e}")
+                need_reinit = True
+        
+        if need_reinit:
+            try:
+                if hasattr(self, 'audio') and self.audio is not None:
+                    self.audio.terminate()
+                self.audio = pyaudio.PyAudio()
+                print("[AudioIO] 🔄 PyAudio 재초기화 완료")
+            except Exception as e:
+                print(f"[AudioIO] ⚠️ PyAudio 재초기화 중 오류: {e}")
+        else:
+            print("[AudioIO] ✅ 기존 PyAudio 객체 재사용")
+        
+        # 이전에 성공한 샘플 레이트가 있으면 우선 시도
+        if hasattr(self, '_working_sample_rate') and self._working_sample_rate:
+            sample_rates = [self._working_sample_rate, 44100, 48000, 16000, 22050]
+            # 중복 제거
+            sample_rates = list(dict.fromkeys(sample_rates))
+        else:
+            sample_rates = [44100, 48000, 16000, 22050]
+        
+        # 📋 디바이스 가용성 사전 확인 (한 번만)
+        if not hasattr(self, '_device_checked') or not self._device_checked:
+            if not self._check_device_availability():
+                print("[AudioIO] ❌ 디바이스 사용 불가 - 대안 방법 시도")
+                return self._fallback_recording(duration)
+            self._device_checked = True
         
         for sample_rate in sample_rates:
             try:
-                # 📋 디바이스 가용성 사전 확인
-                if not self._check_device_availability():
-                    print("[AudioIO] ❌ 디바이스 사용 불가 - 대안 방법 시도")
-                    return self._fallback_recording(duration)
                 
                 print(f"[AudioIO] 📊 샘플 레이트 시도: {sample_rate}Hz")
                 
@@ -413,6 +443,9 @@ class AudioIO:
                 
                 print(f"[AudioIO] ✅ 녹음 완료: {len(frames)}개 청크 ({sample_rate}Hz)")
                 
+                # 성공한 샘플 레이트 기억
+                self._working_sample_rate = sample_rate
+                
                 # WAV 파일 생성
                 if not frames:
                     print("[AudioIO] ❌ 녹음된 데이터가 없습니다")
@@ -439,6 +472,14 @@ class AudioIO:
                 
             except Exception as e:
                 print(f"[AudioIO] ❌ {sample_rate}Hz 녹음 오류: {e}")
+                
+                # 디바이스 오류 시 캐시 리셋
+                if "Device unavailable" in str(e) or "-9985" in str(e):
+                    print("[AudioIO] 🔄 디바이스 오류로 인한 캐시 리셋")
+                    self._device_checked = False
+                    if hasattr(self, '_working_sample_rate'):
+                        delattr(self, '_working_sample_rate')
+                
                 if sample_rate == sample_rates[-1]:  # 마지막 샘플 레이트도 실패한 경우
                     print(f"[AudioIO] 🔧 디바이스 정보 재확인:")
                     self._print_audio_device_info()
@@ -725,8 +766,16 @@ class AudioIO:
             try:
                 if hasattr(self.current_stream, 'is_active') and self.current_stream.is_active():
                     self.current_stream.stop_stream()
+                    print("[AudioIO] 🛑 스트림 중지 완료")
+                
                 if hasattr(self.current_stream, 'is_stopped') and not self.current_stream.is_stopped():
                     self.current_stream.close()
+                    print("[AudioIO] 🔒 스트림 닫기 완료")
+                
+                # 추가 대기 시간으로 완전한 해제 보장
+                import time
+                time.sleep(0.1)
+                
                 print("[AudioIO] 🧹 기존 스트림 정리 완료")
             except Exception as e:
                 print(f"[AudioIO] ⚠️ 스트림 정리 중 오류: {e}")

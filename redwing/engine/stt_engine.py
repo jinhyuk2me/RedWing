@@ -509,8 +509,14 @@ class WhisperSTTEngine:
                 return ""
         
         # 4. 특수 유니코드 문자 제거 (환각에서 자주 나타나는 문자들)
+        # 🆕 항공 통신에서 허용되는 비ASCII 문자 (유럽어 악센트 등) 예외 처리
+        allowed_non_ascii = r'[àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞŸ]'  # 유럽어 악센트
+        
+        # 허용된 비ASCII 문자를 임시로 제거하고 검사
+        temp_text = re.sub(allowed_non_ascii, 'X', text)  # 허용된 문자를 X로 치환
         unicode_hallucination_pattern = r'[^\x00-\x7F]'  # ASCII 범위 외 모든 문자
-        if re.search(unicode_hallucination_pattern, text):
+        
+        if re.search(unicode_hallucination_pattern, temp_text):
             print(f"[WhisperSTT] 환각 감지: 비ASCII 문자 포함 '{text}'")
             return ""
         
