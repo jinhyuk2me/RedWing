@@ -116,7 +116,7 @@ IMPROVED_GESTURE_CONFIG = {
     'confirmation_requirements': {
         'min_confirmations': 5,
         'completion_required': True,
-        'cooldown_seconds': 2.0
+        'cooldown_seconds': 3.0
     },
     'confidence_trend_analysis': True,
     'gesture_transition_detection': True,
@@ -147,8 +147,8 @@ IMPROVED_GESTURE_CONFIG = {
     },
     
     # 동작 완료 판단 설정
-    'min_motion_duration': 1.2,        # 최소 동작 지속시간 (초)
-    'completion_stable_frames': 20,     # 완료 판단 안정 프레임 수
+    'min_motion_duration': 2.0,        # 최소 동작 지속시간 (초)
+    'completion_stable_frames': 30,     # 완료 판단 안정 프레임 수
     'completion_motion_threshold': 0.005,  # 완료 판단 움직임 임계값
     'consistency_window_frames': 30,    # 일관성 분석 윈도우 (프레임)
     'confidence_gradient_min': 0.02,    # 최소 신뢰도 증가율
@@ -179,9 +179,9 @@ def get_port_info():
 # 모델 및 데이터 경로
 PATHS = {
     'model_file': 'models/tcn_gesture_model.pth',
-    'raw_data': '../pose_data',
-    'processed_data': '../processed_pose_data', 
-    'logs': 'logs'
+    'raw_data': '../pose_data_rotated',  # 회전된 데이터 사용
+    'processed_data': '../processed_pose_data_rotated',  # 회전된 데이터용 새 처리 폴더
+    'logs': 'logs'  # pds 폴더 기준 상대경로 (일관된 로그 위치 보장)
 }
 
 # 학습 설정
@@ -195,9 +195,20 @@ TRAINING_CONFIG = {
     'num_workers': 4
 }
 
+# 🎬 데모 영상 모드 설정
+DEMO_VIDEO_CONFIG = {
+    'enabled': True,                    # 데모 모드 활성화
+    'data_path': '../pose_data',        # 영상 데이터 경로
+    'videos_per_gesture': 2,            # 각 제스처당 영상 수
+    'gesture_order': ['forward', 'left', 'right', 'stop'],  # 재생 순서
+    'video_selection': 'random',        # 'random' 또는 'sequential'
+    'loop_demo': True,                  # 데모 반복 여부
+    'gesture_change_delay': 0.5,        # 제스처 변경시 대기 시간(초)
+}
+
 # 로깅 설정
 LOGGING_CONFIG = {
     'level': 'INFO',
     'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    'log_file': 'logs/pds_tcn.log'
+    'log_file': 'logs/pds.log'
 } 

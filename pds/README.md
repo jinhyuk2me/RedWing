@@ -30,8 +30,13 @@ pds_tcn/
 ├── preprocessor.py                # MP4 → 자세 좌표 전처리
 ├── dataset.py                     # PyTorch 데이터셋 로더
 ├── train.py                       # 모델 학습 스크립트
+├── evaluate_model.py              # 모델 성능 평가
 ├── utils.py                       # 유틸리티 함수
 ├── requirements.txt               # 라이브러리 목록
+├── demos/                         # 데모 및 검증 스크립트
+│   ├── demo_validator.py          # 데모 영상 생성 및 검증
+│   ├── demo_visualizer.py         # 시각적 데모 영상 생성
+│   └── demo_videos/               # 생성된 데모 영상들
 ├── models/                        # 학습된 모델 파일
 ├── logs/                          # 로그 파일
 ├── runs/                          # 학습 결과
@@ -51,24 +56,45 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 
 ### 🎯 메인 서버 실행 (권장)
 ```bash
+# pds 폴더에서 실행
+cd pds
 python server.py
 ```
 
 ### 🎯 검출기 단독 테스트
 ```bash
+# pds 폴더에서 실행
+cd pds
 python detector.py
 ```
 
 ### 기존 기능들
 ```bash
+# pds 폴더에서 실행
+cd pds
+
 # 데이터 전처리
 python preprocessor.py
 
 # 모델 학습
 python train.py
 
+# 모델 성능 평가
+python evaluate_model.py
+
 # 기본 자세 추정 테스트
 python pose_estimator.py
+```
+
+### 🎬 데모 및 검증
+```bash
+# 데모 영상 생성 및 검증
+cd demos
+python demo_validator.py
+
+# 시각적 데모 영상 생성
+cd demos
+python demo_visualizer.py
 ```
 
 ## 🎯 개선된 통신 프로토콜

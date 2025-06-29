@@ -118,8 +118,9 @@ class TCPMockServer:
         self.bird_last_update = datetime.now()
         
         # 자동 이벤트 생성 관련
-        self.auto_events_enabled = False
+        self.auto_events_enabled = False  # 기본적으로 꺼진 상태로 시작
         self.event_thread: Optional[threading.Thread] = None
+        self.terminal_thread: Optional[threading.Thread] = None  # 터미널 입력 스레드
         self.event_intervals = {
             "BR_CHANGED": 60.0,          # 60초마다 조류 위험도 변화
             "RWY_A_STATUS_CHANGED": 75.0, # 75초마다 활주로 A 상태 변화
@@ -135,6 +136,7 @@ class TCPMockServer:
         print(f"[TCPMockServer] 🦅 조류 시나리오: {self.bird_data['risk_level']} 위험도 → {self.bird_data['result']}")
         print(f"[TCPMockServer] 🛬 활주로 상태: ALPHA({self.runway_data['RWY-ALPHA']['status']}), BRAVO({self.runway_data['RWY-BRAVO']['status']})")
         print(f"[TCPMockServer] 🔄 TCP 프로토콜 명세 준수 모드 (CLEAR/WARNING)")
+        print(f"[TCPMockServer] ⚠️ 자동 이벤트가 꺼진 상태로 시작됩니다. 'start' 명령어로 켜세요.")
     
     def start_server(self):
         """TCP 서버 시작"""
@@ -148,8 +150,8 @@ class TCPMockServer:
             print(f"[TCPMockServer] 🌐 TCP 서버 시작: {self.host}:{self.port}")
             print(f"[TCPMockServer] 📡 클라이언트 연결 대기 중...")
             
-            # 자동 이벤트 시작
-            self.start_auto_events()
+            # 터미널 입력 스레드 시작
+            self.start_terminal_handler()
             
             while self.running:
                 try:
@@ -180,6 +182,7 @@ class TCPMockServer:
         print(f"[TCPMockServer] 🛑 서버 중지 중...")
         self.running = False
         self.stop_auto_events()
+        self.stop_terminal_handler()
         
         # 클라이언트 연결 종료
         for client in self.clients:
@@ -247,10 +250,7 @@ class TCPMockServer:
                 self.send_response(client_socket, command, response, address)
             elif message_type == "gui_ready":
                 print(f"[TCPMockServer] 🎯 GUI 준비 완료 신호 수신 from {address}")
-                # GUI 준비 완료 시 자동 이벤트 시작
-                if not hasattr(self, 'auto_events_started') or not self.auto_events_started:
-                    self.start_auto_events()
-                    self.auto_events_started = True
+                print(f"[TCPMockServer] ℹ️ 자동 이벤트를 시작하려면 'start' 명령어를 입력하세요.")
             else:
                 print(f"[TCPMockServer] ❓ 알 수 없는 메시지 타입: {message_type}")
                 
@@ -320,6 +320,76 @@ class TCPMockServer:
         if self.event_thread and self.event_thread.is_alive():
             self.event_thread.join(timeout=2)
         print("[TCPMockServer] ⏹️ 자동 이벤트 생성 중지")
+    
+    def start_terminal_handler(self):
+        """터미널 입력 핸들러 시작"""
+        self.terminal_thread = threading.Thread(target=self._terminal_input_loop, daemon=True)
+        self.terminal_thread.start()
+        self.print_help()
+    
+    def stop_terminal_handler(self):
+        """터미널 입력 핸들러 중지"""
+        # 데몬 스레드로 실행되므로 자동으로 종료됨
+        pass
+    
+    def print_help(self):
+        """도움말 출력"""
+        print("\n[TCPMockServer] ⌨️ 터미널 명령어:")
+        print("  start   - 자동 이벤트 시작")
+        print("  stop    - 자동 이벤트 중지")
+        print("  status  - 현재 상태 확인")
+        print("  help    - 도움말 출력")
+        print("  exit    - 서버 종료")
+        print("=" * 50)
+    
+    def _terminal_input_loop(self):
+        """터미널 입력 처리 루프"""
+        while self.running:
+            try:
+                command = input().strip().lower()
+                if command:
+                    self.process_terminal_command(command)
+            except (EOFError, KeyboardInterrupt):
+                break
+            except Exception as e:
+                print(f"[TCPMockServer] ❌ 터미널 입력 오류: {e}")
+    
+    def process_terminal_command(self, command: str):
+        """터미널 명령어 처리"""
+        if command == "start":
+            if not self.auto_events_enabled:
+                self.start_auto_events()
+                print("[TCPMockServer] ✅ 자동 이벤트가 시작되었습니다.")
+            else:
+                print("[TCPMockServer] ⚠️ 자동 이벤트가 이미 실행 중입니다.")
+        
+        elif command == "stop":
+            if self.auto_events_enabled:
+                self.stop_auto_events()
+                print("[TCPMockServer] ✅ 자동 이벤트가 중지되었습니다.")
+            else:
+                print("[TCPMockServer] ⚠️ 자동 이벤트가 이미 중지되어 있습니다.")
+        
+        elif command == "status":
+            event_status = "켜짐" if self.auto_events_enabled else "꺼짐"
+            client_count = len(self.clients)
+            print(f"[TCPMockServer] 📊 현재 상태:")
+            print(f"  자동 이벤트: {event_status}")
+            print(f"  연결된 클라이언트: {client_count}개")
+            print(f"  조류 위험도: {self.bird_data['risk_level']} ({self.bird_data['result']})")
+            print(f"  활주로 ALPHA: {self.runway_data['RWY-ALPHA']['status']}")
+            print(f"  활주로 BRAVO: {self.runway_data['RWY-BRAVO']['status']}")
+        
+        elif command == "help":
+            self.print_help()
+        
+        elif command == "exit":
+            print("[TCPMockServer] 🛑 서버를 종료합니다...")
+            self.stop_server()
+        
+        else:
+            print(f"[TCPMockServer] ❓ 알 수 없는 명령어: {command}")
+            print("'help' 명령어로 사용 가능한 명령어를 확인하세요.")
     
     def _auto_event_loop(self):
         """자동 이벤트 생성 루프"""
@@ -478,8 +548,10 @@ def main():
     print("🚀 FALCON TCP Mock Server")
     print("="*60)
     print("📡 실제 TCP 서버처럼 동작하는 모의 서버입니다.")
-    print("🔌 클라이언트 연결을 기다리며 자동으로 이벤트를 생성합니다.")
-    print("⚠️  종료하려면 Ctrl+C를 누르세요.")
+    print("🔌 클라이언트 연결을 기다리며 터미널 명령어로 제어할 수 있습니다.")
+    print("⌨️  터미널 명령어: start, stop, status, help, exit")
+    print("⚠️  자동 이벤트는 기본적으로 꺼져있습니다. 'start' 명령어로 켜세요.")
+    print("🛑 종료하려면 Ctrl+C를 누르거나 'exit' 명령어를 입력하세요.")
     print("="*60)
     
     server = TCPMockServer()

@@ -39,7 +39,125 @@ class PoseDataPreprocessor:
         
         # MediaPipe 관절 인덱스
         self.key_landmarks = MEDIAPIPE_CONFIG['key_landmarks']
+    
+    def validate_paths(self) -> bool:
+        """
+        경로 검증 및 필요한 폴더 생성
         
+        Returns:
+            bool: 모든 경로가 유효하면 True
+        """
+        logger.info("=== 경로 검증 시작 ===")
+        
+        # 원본 데이터 경로 확인
+        raw_data_path = Path(PATHS['raw_data'])
+        if not raw_data_path.exists():
+            logger.error(f"❌ 원본 데이터 폴더를 찾을 수 없습니다: {raw_data_path.absolute()}")
+            return False
+        
+        logger.info(f"✅ 원본 데이터 폴더: {raw_data_path.absolute()}")
+        
+        # 제스처 폴더 확인
+        missing_gestures = []
+        gesture_stats = {}
+        
+        for gesture_name in GESTURE_CLASSES.values():
+            gesture_folder = raw_data_path / gesture_name
+            if gesture_folder.exists():
+                mp4_files = list(gesture_folder.glob("*.mp4"))
+                gesture_stats[gesture_name] = len(mp4_files)
+                logger.info(f"✅ {gesture_name}: {len(mp4_files)}개 영상 파일")
+            else:
+                missing_gestures.append(gesture_name)
+                logger.warning(f"❌ {gesture_name} 폴더 없음: {gesture_folder}")
+        
+        if missing_gestures:
+            logger.error(f"❌ 누락된 제스처 폴더들: {missing_gestures}")
+            return False
+        
+        # 처리된 데이터 경로 생성
+        processed_data_path = Path(PATHS['processed_data'])
+        if not processed_data_path.exists():
+            logger.info(f"📁 처리된 데이터 폴더 생성: {processed_data_path.absolute()}")
+            processed_data_path.mkdir(parents=True, exist_ok=True)
+        else:
+            logger.info(f"✅ 처리된 데이터 폴더: {processed_data_path.absolute()}")
+        
+        # 로그 폴더 확인
+        logs_path = Path(PATHS['logs'])
+        if not logs_path.exists():
+            logs_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"📁 로그 폴더 생성: {logs_path.absolute()}")
+        
+        # 요약 출력
+        total_videos = sum(gesture_stats.values())
+        logger.info("=== 경로 검증 완료 ===")
+        logger.info(f"📊 총 영상 파일: {total_videos}개")
+        for gesture, count in gesture_stats.items():
+            logger.info(f"   - {gesture}: {count}개")
+        
+        return True
+    
+    def cleanup_existing_data(self, output_root: str = None) -> bool:
+        """
+        기존 처리된 데이터 정리
+        
+        Args:
+            output_root: 정리할 데이터 폴더 경로
+            
+        Returns:
+            bool: 정리 성공시 True
+        """
+        if output_root is None:
+            output_root = PATHS['processed_data']
+            
+        output_path = Path(output_root)
+        
+        if not output_path.exists():
+            logger.info(f"🆕 새로운 처리: {output_path.absolute()}")
+            return True
+        
+        logger.info("🧹 기존 처리된 데이터 정리 시작...")
+        logger.info(f"📁 대상 폴더: {output_path.absolute()}")
+        
+        try:
+            # 기존 .npy 파일들 삭제
+            npy_files = list(output_path.rglob("*.npy"))
+            json_files = list(output_path.rglob("*.json"))
+            
+            total_files = len(npy_files) + len(json_files)
+            
+            if total_files == 0:
+                logger.info("✅ 정리할 파일이 없습니다.")
+                return True
+            
+            logger.info(f"🗑️ 삭제할 파일들:")
+            logger.info(f"   - .npy 파일: {len(npy_files)}개")
+            logger.info(f"   - .json 파일: {len(json_files)}개")
+            logger.info(f"   - 총 {total_files}개 파일")
+            
+            # .npy 파일들 삭제
+            for npy_file in npy_files:
+                npy_file.unlink()
+                
+            # .json 파일들 삭제  
+            for json_file in json_files:
+                json_file.unlink()
+            
+            # 빈 폴더들 정리
+            for gesture_name in GESTURE_CLASSES.values():
+                gesture_folder = output_path / gesture_name
+                if gesture_folder.exists() and not any(gesture_folder.iterdir()):
+                    gesture_folder.rmdir()
+                    logger.info(f"📂 빈 폴더 삭제: {gesture_name}/")
+            
+            logger.info(f"✅ 정리 완료: {total_files}개 파일 삭제")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ 파일 정리 중 오류 발생: {e}")
+            return False
+    
     def extract_pose_from_video(self, video_path: str) -> Optional[np.ndarray]:
         """
         MP4 영상에서 자세 좌표 추출
@@ -59,8 +177,9 @@ class PoseDataPreprocessor:
                 
             poses = []
             frame_count = 0
+            max_frames = 600  # 최대 20초 (30fps * 20초) 제한
             
-            while True:
+            while frame_count < max_frames:
                 ret, frame = cap.read()
                 if not ret:
                     break
@@ -82,13 +201,9 @@ class PoseDataPreprocessor:
                     
                     poses.append(pose_data)
                 else:
-                    # 자세 검출 실패 시 이전 프레임 복사 (또는 영점)
-                    if poses:
-                        poses.append(poses[-1])  # 이전 프레임 복사
-                    else:
-                        # 영점 데이터
-                        zero_pose = [[0.0, 0.0, 0.0] for _ in range(len(self.key_landmarks))]
-                        poses.append(zero_pose)
+                    # 자세 검출 실패 시 해당 프레임 건너뛰기 (누적 방지)
+                    logger.debug(f"자세 검출 실패 - 프레임 {frame_count} 건너뛰기")
+                    continue
                 
                 frame_count += 1
                 
@@ -217,8 +332,19 @@ class PoseDataPreprocessor:
             data_root = PATHS['raw_data']
         if output_root is None:
             output_root = PATHS['processed_data']
+        
+        # 🔍 경로 검증 먼저 수행
+        if not self.validate_paths():
+            logger.error("❌ 경로 검증 실패! 처리를 중단합니다.")
+            return
+        
+        # 🧹 기존 데이터 정리
+        if not self.cleanup_existing_data(output_root):
+            logger.error("❌ 기존 데이터 정리 실패! 처리를 중단합니다.")
+            return
             
         data_path = Path(data_root)
+        logger.info(f"🎯 회전된 영상 데이터 처리 시작: {data_path.absolute()}")
         
         for gesture_name in GESTURE_CLASSES.values():
             gesture_folder = data_path / gesture_name
@@ -270,12 +396,55 @@ class PoseDataPreprocessor:
         
         return summary
 
+    @staticmethod
+    def cleanup_only(output_root: str = None):
+        """
+        정리 작업만 수행하는 독립적인 메서드
+        
+        Args:
+            output_root: 정리할 데이터 폴더 경로
+        """
+        if output_root is None:
+            output_root = PATHS['processed_data']
+            
+        logger.info("🧹 데이터 정리 모드")
+        logger.info("=" * 40)
+        
+        # 임시 인스턴스 생성하여 정리 수행
+        temp_preprocessor = PoseDataPreprocessor()
+        
+        if temp_preprocessor.cleanup_existing_data(output_root):
+            logger.info("🎉 정리 완료!")
+        else:
+            logger.error("❌ 정리 실패!")
+
 if __name__ == "__main__":
-    # 사용 예시
-    preprocessor = PoseDataPreprocessor()
+    import sys
     
-    # 모든 제스처 처리
-    preprocessor.process_all_gestures()
-    
-    # 데이터셋 요약
-    preprocessor.create_dataset_summary() 
+    # 정리 모드 체크
+    if len(sys.argv) > 1 and sys.argv[1] == "cleanup":
+        # 🧹 정리 모드
+        PoseDataPreprocessor.cleanup_only()
+    else:
+        # 🎯 회전된 영상 데이터 전처리 시작
+        logger.info("🎯 PDS TCN 전처리기 시작 - 회전된 영상 데이터 처리")
+        logger.info("=" * 60)
+        logger.info("💡 정리만 하려면: python preprocessor.py cleanup")
+        logger.info("=" * 60)
+        
+        preprocessor = PoseDataPreprocessor()
+        
+        # 모든 제스처 처리
+        logger.info("📹 회전된 영상에서 자세 데이터 추출 중...")
+        preprocessor.process_all_gestures()
+        
+        # 데이터셋 요약
+        logger.info("📊 처리된 데이터셋 요약 생성 중...")
+        summary = preprocessor.create_dataset_summary()
+        
+        if summary and summary['total_samples'] > 0:
+            logger.info("🎉 전처리 완료!")
+            logger.info(f"✅ 총 {summary['total_samples']}개 학습 샘플 생성")
+            logger.info("🚀 이제 train.py로 모델 학습을 시작할 수 있습니다!")
+        else:
+            logger.warning("⚠️ 처리된 샘플이 없습니다. 데이터를 확인해주세요.") 

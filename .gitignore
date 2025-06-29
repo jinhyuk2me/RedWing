@@ -1,0 +1,73 @@
+# 이미지 파일
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+
+# 비디오 파일
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.flv
+*.webm
+
+# 오디오 파일
+*.wav
+*.mp3
+*.aac
+*.flac
+
+# 모델 파일 (크기가 큰 바이너리)
+*.pth
+*.pt
+*.h5
+*.pkl
+*.joblib
+
+# 데이터 파일
+*.npy
+*.npz
+*.csv
+*.json
+*.parquet
+
+# 로그 파일
+*.log
+logs/
+*.out
+
+# Python 캐시
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 환경 설정
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# TensorBoard
+runs/
+events.out.tfevents.*
+
+# 임시 파일
+*.tmp
+*.temp
+*~ 

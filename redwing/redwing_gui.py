@@ -1567,7 +1567,7 @@ class RedWing(QMainWindow):
                     
                 # 메인 상태 표시 업데이트
                 if self.label_main_status:
-                    self.label_main_status.setText(f"MARSHALING: {result}")
+                    self.label_main_status.setText(result)
                     
             else:
                 print(f"[GUI] 🤚 신뢰도 부족으로 무시: {confidence:.2f} < 0.70")
